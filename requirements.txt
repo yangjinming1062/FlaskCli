@@ -1,0 +1,18 @@
+Flask
+Flask-Cors
+flask_jwt_extended
+# 工具
+Werkzeug
+ujson
+requests
+# 数据库
+pymysql
+redis
+SQLAlchemy
+# Server
+gunicorn
+gevent
+# GraphQL
+graphene
+graphene-sqlalchemy
+Flask-GraphQL
