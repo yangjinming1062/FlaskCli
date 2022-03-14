@@ -1,8 +1,10 @@
 from functools import wraps
 
 from flask import make_response, jsonify, request
+from sqlalchemy import select, func
 
 from enums import *
+from models import *
 from utils import logger
 from utils.tool import is_simple_data, to_dict
 
@@ -73,3 +75,58 @@ def api_wrapper(requires: set = None):
         return wrapper
 
     return decorator
+
+
+def sql_list(target, parser, args=None):
+    """
+    对全部数据进行分页返回处理【真分页，根据条件执行SQL查询出对应的数据】
+    :param target: ORM类定义
+    :param parser: ORM类实例的序列化方法
+    :param args: 查询条件
+    """
+    args = request.args.get
+    with Session(engine) as session:
+        # 这里考虑到所有的ORM类都应该继承自ModelTemplate，所以也都应该有id列
+        if args:
+            count = session.execute(select(func.count(target.id)).where(args)).scalar()
+        else:
+            count = session.execute(select(func.count(target.id))).scalar()
+        page = int(args('page', 0))
+        limit = int(args('limit', 10))
+        pagination = {"page": page, "total": count, 'limit': limit}
+        if args:
+            sql = select(target).where(args).offset((page - 1) * limit).limit(limit)
+        else:
+            sql = select(target).offset((page - 1) * limit).limit(limit)
+        if order_key := args('order_by', None):
+            if args('order', 'asc') == 'asc':
+                order = getattr(target, order_key).asc()
+            else:
+                order = getattr(target, order_key).desc()
+            sql = sql.order_by(order)
+        result = session.execute(sql).scalars().all()
+        return response(ResponseEnum.SUCCESS_200,
+                        data=[parser(data) for data in result],
+                        pagination=pagination)
+
+
+def data_list(data: list):
+    """
+    对全部数据进行分页返回处理【假分页，data为全部数据】
+    :param data: 全部数据
+    """
+    args = request.args.get
+    page = int(args('page', 0))
+    limit = int(args('limit', 10))
+    pagination = {"page": page, "total": len(data), 'limit': limit}
+    if (filter_by := args('filter_by', None)) and (filter_value := args('filter', None)):
+        if args('fuzzy', None) == 'true':
+            data = list(filter(lambda d: d.get(filter_by, '').find(filter_value) > -1, data))
+        else:
+            data = list(filter(lambda d: str(d.get(filter_by, '')) == str(filter_value), data))
+    if order_key := args('order_by', None):
+        data.sort(key=lambda d: d.get(order_key, 0), reverse=args('order', 'asc') != 'asc')
+    pagination["filtered"] = len(data)
+    return response(ResponseEnum.SUCCESS_200,
+                    data=data[(page - 1) * limit:page * limit] if page > 0 else data,
+                    pagination=pagination)
