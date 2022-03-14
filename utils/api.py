@@ -1,7 +1,7 @@
 from functools import wraps
 
 from flask import make_response, jsonify, request
-from sqlalchemy import select, func
+from sqlalchemy import select, func, asc, desc
 
 from enums import *
 from models import *
@@ -99,11 +99,7 @@ def sql_list(target, parser, args=None):
         else:
             sql = select(target).offset((page - 1) * limit).limit(limit)
         if order_key := args('order_by', None):
-            if args('order', 'asc') == 'asc':
-                order = getattr(target, order_key).asc()
-            else:
-                order = getattr(target, order_key).desc()
-            sql = sql.order_by(order)
+            sql = sql.order_by(asc(order_key) if args('order', 'asc') == 'asc' else desc(order_key))
         result = session.execute(sql).scalars().all()
         return response(ResponseEnum.SUCCESS_200,
                         data=[parser(data) for data in result],
