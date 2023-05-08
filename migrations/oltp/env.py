@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from config import DATABASE_MYSQL_URI
-from models import TPModelBase
+from models import OLTPModelBase
 
 config = context.config
 
@@ -16,7 +16,7 @@ config.set_main_option(
     'sqlalchemy.url',
     DATABASE_MYSQL_URI,
 )
-target_metadata = TPModelBase.metadata
+target_metadata = OLTPModelBase.metadata
 
 
 def run_migrations_offline() -> None:

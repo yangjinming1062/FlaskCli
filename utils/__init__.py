@@ -11,6 +11,8 @@ import sys
 from loguru import logger
 
 from .classes import Kafka
+from .classes import OLAP_ENGINE
+from .classes import OLTP_ENGINE
 from .classes import Redis
 from .classes import Singleton
 from .functions import exceptions

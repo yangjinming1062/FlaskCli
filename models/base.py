@@ -6,7 +6,6 @@ Description : model基础信息定义
 Model分为两类，
     - OLTP: 联机事务处理
     - OLAP: 联机事务处理
-    因ol和01不易区分，因此只保留TP、AP进行定义
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
 from secrets import token_urlsafe
@@ -17,31 +16,22 @@ from uuid import uuid4
 from clickhouse_sqlalchemy import types
 from sqlalchemy import Column
 from sqlalchemy import String
-from sqlalchemy import create_engine
 from sqlalchemy import insert
 from sqlalchemy import select
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import scoped_session
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.collections import InstrumentedList
 
-from config import DATABASE_CLICKHOUSE_URI
-from config import DATABASE_MYSQL_URI
-from utils.classes import logger
-from utils.functions import execute_sql
+from utils import OLAP_ENGINE
+from utils import OLTP_ENGINE
+from utils import execute_sql
+from utils import logger
 
-tp_engine = create_engine(DATABASE_MYSQL_URI, pool_size=150, pool_recycle=60)
-tp_public_session = scoped_session(sessionmaker(autocommit=True, bind=tp_engine))
-_TPModelBase = declarative_base(bind=tp_engine)
-
-ap_engine = create_engine(DATABASE_CLICKHOUSE_URI)
-ap_public_session = scoped_session(sessionmaker(autocommit=True, bind=ap_engine))
-_APModelBase = declarative_base(bind=ap_engine)
-
+_OLTPModelBase = declarative_base(bind=OLTP_ENGINE)
+_OLAPModelBase = declarative_base(bind=OLAP_ENGINE)
 IdDefine = String(32)
 
 
@@ -49,6 +39,8 @@ class ModelTemplate:
     """
     TP、AP公共方法
     """
+
+    id = None
 
     def jsonify(self, excluded: set = None, include_properties=True) -> dict:
         """
@@ -69,7 +61,7 @@ class ModelTemplate:
             value = getattr(self, property_name)
             if isinstance(value, InstrumentedList):
                 d[property_name] = [item.id for item in value]  # 只导出ID是为了避免循环调用
-            elif isinstance(value, _TPModelBase):
+            elif isinstance(value, (OLAPModelBase, OLTPModelBase)):
                 d[property_name] = {'id': value.id}
             elif isinstance(cp, InstrumentedAttribute) or (isinstance(cp, property) and include_properties):
                 d[property_name] = value
@@ -90,15 +82,15 @@ class ModelTemplate:
                 properties.append(property_name)
         return properties
 
-
-class TPModelBase(_TPModelBase, ModelTemplate):
-    """
-    OLTP模型基类
-    """
-    __abstract__ = True
-
-    id: Union[Column, str] = Column(IdDefine, primary_key=True, default=lambda: token_urlsafe(24), comment='主键')
-    query: scoped_session = tp_public_session.query_property()  # GraphQL用到
+    @classmethod
+    def to_property(cls, columns: Union[str, list, set]):
+        """
+        根据列名获取对应的列
+        """
+        if isinstance(columns, str):
+            return getattr(cls, columns)
+        else:
+            return [getattr(cls, name) for name in columns]
 
     @classmethod
     def create(cls, **kwargs) -> (Optional[str], bool):
@@ -110,8 +102,7 @@ class TPModelBase(_TPModelBase, ModelTemplate):
         Returns:
             返回元组，第一位可能是新建数据的ID或错误消息，第二位是SQL执行是否成功的标识位
         """
-        with Session(tp_engine, autocommit=True) as session:
-            return execute_sql(insert(cls).values(**kwargs), session)
+        return execute_sql(insert(cls).values(**kwargs))
 
     @classmethod
     def read(cls, query_id=None):
@@ -124,9 +115,9 @@ class TPModelBase(_TPModelBase, ModelTemplate):
             实例对象或列表数据
         """
         if query_id:
-            return execute_sql(select(cls).where(cls.id == query_id), tp_public_session, keyword=0, expect_list=False)
+            return execute_sql(select(cls).where(cls.id == query_id), many=False)
         else:
-            return execute_sql(select(cls), tp_public_session, keyword=0, expect_list=True)
+            return execute_sql(select(cls), many=True)
 
     @classmethod
     def update(cls, query_id, data):
@@ -139,8 +130,7 @@ class TPModelBase(_TPModelBase, ModelTemplate):
         Returns:
             返回元组，第一位可能是None或错误消息，第二位是SQL执行是否成功的标识位
         """
-        with Session(tp_engine, autocommit=True) as session:
-            return execute_sql(update(cls).where(cls.id == query_id).values(**data), session)
+        return execute_sql(update(cls).where(cls.id == query_id).values(**data))
 
     @classmethod
     def delete(cls, query_id) -> (Optional[str], bool):
@@ -152,18 +142,16 @@ class TPModelBase(_TPModelBase, ModelTemplate):
         Returns:
             返回元组，第一位可能是None或错误消息，第二位是SQL执行是否成功的标识位
         """
-        with Session(tp_engine) as session:
+        with Session(cls.bind) as session:
             try:
                 if isinstance(query_id, (list, set)):
-                    if instances := session.execute(select(cls).where(cls.id.in_(query_id))).scalars().all():
+                    if instances := session.scalars(select(cls).where(cls.id.in_(query_id))).all():
                         for instance in instances:
                             session.delete(instance)
-                        session.commit()
                         return None, True
                 else:
-                    if instance := session.execute(select(cls).where(cls.id == query_id)).scalar():
+                    if instance := session.scalar(select(cls).where(cls.id == query_id)):
                         session.delete(instance)  # 通过该方式可以级联删除子数据
-                        session.commit()
                         return None, True
                 return f'未找到资源', False
             except IntegrityError as ex:
@@ -174,11 +162,23 @@ class TPModelBase(_TPModelBase, ModelTemplate):
                 session.rollback()
                 logger.exception(exx)
                 return str(exx), False
+            finally:
+                session.commit()
 
 
-class APModelBase(_APModelBase, ModelTemplate):
+class OLTPModelBase(_OLTPModelBase, ModelTemplate):
+    """
+    OLTP模型基类
+    """
+    __abstract__ = True
+
+    id: Union[Column, str] = Column(IdDefine, primary_key=True, default=lambda: token_urlsafe(24), comment='主键')
+
+
+class OLAPModelBase(_OLAPModelBase, ModelTemplate):
     """
     OLAP模型基类
     """
     __abstract__ = True
+
     id: Union[Column, str] = Column(types.UUID, primary_key=True, default=lambda: uuid4(), comment='主键')

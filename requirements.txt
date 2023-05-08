@@ -8,7 +8,7 @@ gunicorn==20.1.0
 alembic==1.10.2
 SQLAlchemy==1.4.47
 mysql-connector-python==8.0.32
-redis==4.5.1
+redis==4.5.4
 clickhouse-sqlalchemy==0.2.3
 confluent-kafka==2.0.2
 # Other

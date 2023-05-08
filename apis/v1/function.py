@@ -13,11 +13,11 @@ from flask import send_file
 from utils.api import *
 from . import version
 
-bp = Blueprint('function', __name__, url_prefix=f'/api/{version}/function')
+bp = Blueprint(__name__.split('.')[-1], __name__, url_prefix=f'/api/{version}/function')
 
 
 @bp.route('/download', methods=['GET'])
-@api_wrapper(requires=set())
+@api_wrapper(params={})
 def get_download(**kwargs):
     """
     文件下载下载

@@ -13,10 +13,8 @@ from flask import request
 from sqlalchemy import asc
 from sqlalchemy import desc
 from sqlalchemy import select
-from sqlalchemy import text
 
 from enums import *
-from models import tp_public_session
 from utils import execute_sql
 from utils import logger
 
@@ -37,34 +35,72 @@ def response(base_response: ResponseEnum, data=None, msg: str = None):
     return jsonify(resp), code
 
 
-def api_wrapper(requires: set = None):
+def api_wrapper(params: dict = None):
     """
     装饰器：统一处理API响应异常以及必要参数的校验
     Args:
-        requires: 当前接口的请求体中必须包含的字段，如果只需要传参数但不强制则传空集合
+        params: 当前接口包含的字段（key为字段名称，value为字段类型），如果参数为必填在在名称前添加*
 
     Returns:
         无异常则返回方法的返回值，异常返回Error
     """
 
     def decorator(func):
+
+        def get_params():
+            req_params = {}
+            # GET和DELETE按照规范是使用url参数
+            if request.method in ('GET', 'DELETE'):
+                for key in dict(request.args).keys():
+                    # 兼容多个key的情况：例如?key=value1&key=value2
+                    req_params[key] = request.args.getlist(key)
+                    if len(params[key]) == 1:
+                        params[key] = params[key][0]
+            # 其他类型请求默认是JSON参数
+            else:
+                req_params = request.json
+            return req_params
+
         @wraps(func)
         def wrapper(*args, **kwargs):
             try:
-                params = {}
-                if requires is not None:  # 参数获取
-                    # GET和DELETE按照规范是使用url参数
-                    if request.method in ('GET', 'DELETE'):
-                        for key in dict(request.args).keys():
-                            params[key] = request.args.get(key)
-                            if len(params[key]) == 1:
-                                # 兼容多个key的情况：例如?key=value1&key=value2
-                                params[key] = params[key][0]
-                    else:
-                        params = request.json
-                    if missed := requires - set(params.keys()):
-                        return response(ResponseEnum.MissingParams, msg=f'缺失{missed}')
-                kwargs['params'] = params
+                # 如果不存在必填参数和任何参数，直接调用原函数，避免进行不必要的参数校验
+                if params is None:
+                    return func(*args, **kwargs)
+                # 1.先获取参数
+                req_params = get_params()
+                # 2.提取必填参数
+                requires = set()
+                for key in {key for key in params.keys() if key.startswith('*')}:
+                    requires.add(key[1:])
+                    params[key[1:]] = params.pop(key)
+                # 3.检查必填参数是否有缺失的
+                if requires and (missed := requires - req_params.keys()):
+                    return response(ResponseEnum.MissingParams, msg=f'缺失{missed}')
+                # 4.如果不存在params则直接返回
+                if not params:
+                    kwargs.update(req_params)
+                    return func(*args, **kwargs)
+                # 5.检查是否有垃圾参数
+                if junk := req_params.keys() - params.keys():
+                    return response(ResponseEnum.InvalidInput, msg=f'存在非法参数{junk}')
+                # 6.检查参数类型，并将对应的参数转成目标类型
+                for k, t in params.items():
+                    if k in req_params:
+                        if t is None:
+                            # None为保留情况，此时不对参数类型进行校验
+                            continue
+                        elif t in (list, dict):
+                            # 复杂的嵌套类型暂时不做处理
+                            if not isinstance(req_params[k], t):
+                                return response(ResponseEnum.InvalidInput, msg=f'{k}的类型应该是{t}')
+                        else:
+                            try:
+                                # args类型参数顺便进行类型转换
+                                req_params[k] = t(req_params[k])
+                            except ValueError:
+                                return response(ResponseEnum.InvalidInput, msg=f'{k}的类型应该是{t}')
+                kwargs.update(req_params)
                 return func(*args, **kwargs)
             except Exception as ex:
                 logger.exception(str(ex), module=func.__module__, func=func.__name__)
@@ -89,21 +125,28 @@ def orm_create(cls, params: dict):
     return response(ResponseEnum.Created if flag else ResponseEnum.InvalidInput, result)
 
 
-def orm_delete(cls, resource_id: Union[str, list]):
+def orm_read(cls, resource_id: str, fields: list = None):
     """
-    删除数据实例
+    ORM数据查询详情
     Args:
-        cls: ORM类定义
-        resource_id:  资源ID
+        cls: OMR类定义
+        resource_id: 资源ID
+        fields: 查询指定的列
 
     Returns:
         Response
     """
-    result, flag = cls.delete(resource_id)
-    if flag:
-        return response(ResponseEnum.NoContent)
+    columns = cls.get_columns()
+    if fields:
+        if set(fields) - set(columns):
+            return response(ResponseEnum.InvalidInput, data=columns, msg=f'请求列错误,请参考合法列名')
+        else:
+            columns = fields
+    sql = select(*cls.to_properties(columns)).select_from(cls).where(cls.id == resource_id)
+    if data := execute_sql(sql, many=False, scalar=False):
+        return response(ResponseEnum.OK, data)
     else:
-        return response(ResponseEnum.InvalidInput, msg=result)
+        return response(ResponseEnum.NotFound)
 
 
 def orm_update(cls, resource_id: str, params: dict):
@@ -124,28 +167,24 @@ def orm_update(cls, resource_id: str, params: dict):
         return response(ResponseEnum.InvalidInput, msg=result)
 
 
-def orm_query(cls, resource_id: str, fields: list = None):
+def orm_delete(cls, resource_id: Union[str, list, set]):
     """
-    ORM数据查询详情
+    删除数据实例
     Args:
-        cls: OMR类定义
-        resource_id: 资源ID
-        fields: 查询指定的列
+        cls: ORM类定义
+        resource_id:  资源ID
 
     Returns:
         Response
     """
-    columns = cls.get_columns()
-    if fields and set(fields) - set(columns):
-        return response(ResponseEnum.InvalidInput, data=columns, msg=f'请求列错误,请参考合法列名')
-    sql = select(text(f"{','.join(fields)}")).where(cls.id.in_(resource_id))
-    if data := execute_sql(sql, tp_public_session, expect_list=False):
-        return response(ResponseEnum.OK, data)
+    result, flag = cls.delete(resource_id)
+    if flag:
+        return response(ResponseEnum.NoContent)
     else:
-        return response(ResponseEnum.NotFound)
+        return response(ResponseEnum.InvalidInput, msg=result)
 
 
-def paginate_query(cls, fields: list = None) -> (list, int):
+def orm_paginate(cls, fields: list = None) -> (list, int):
     """
     统一分分页查询操作
     Args:
@@ -155,35 +194,39 @@ def paginate_query(cls, fields: list = None) -> (list, int):
     Returns:
         数据列表, 分页信息
     """
-    # 1.先处理查询内容
-    columns = cls.get_columns()
+    # 先处理查询内容
+    columns = set(cls.get_columns())
     if fields:
-        if set(fields) - set(columns):
+        if set(fields) - columns:
             return response(ResponseEnum.InvalidInput, data=columns, msg=f'请求列错误,请参考合法列名')
-    else:
-        fields = columns
-    # 2.将敏感字段从查询内容中隐藏
-    fields = set(fields) - {'password', 'access', 'secret'}
-    # 3.分页参数处理
-    limit = request.args.get('limit', type=int, default=20)
-    if limit < 1 or limit > 100:
-        return response(ResponseEnum.InvalidInput, msg=f'limit必须是1-100')
-    offset = request.args.get('offset', type=int, default=0)
-    if offset < 0:
-        offset = 0
-    # 4.构建查询SQL
-    sql = select(text(f"{','.join(fields)}"))
-    if order_by := request.args.getlist('order'):
-        for column in order_by:
-            if column not in columns:
-                return response(ResponseEnum.InvalidInput, data=columns, msg=f'{column}排序无效')
-            # 根据列名前面的正负号判断是正序还是倒序
-            if column.startswith('-'):
-                sql = sql.order_by(desc(column[1:]))
-            elif column.startswith('+'):
-                sql = sql.order_by(asc(column[1:]))
-            else:
-                return response(ResponseEnum.InvalidInput, msg=f'以+/-开头进行排序')
-    sql = sql.limit(limit).offset(offset)
-    # 5.返回响应数据
-    return execute_sql(sql, tp_public_session, expect_list=True, default=[])
+    # 构建查询SQL
+    sql = select(*cls.to_property(fields or columns)).select_from(cls)
+    for column in request.args.getlist('order'):
+        if column not in columns:
+            return response(ResponseEnum.InvalidInput, data=columns, msg=f'{column}排序无效')
+        # 根据列名前面的正负号判断是正序还是倒序
+        if column.startswith('-'):
+            sql = sql.order_by(desc(column[1:]))
+        elif column.startswith('+'):
+            sql = sql.order_by(asc(column[1:]))
+        else:
+            return response(ResponseEnum.InvalidInput, msg=f'以+/-开头进行排序')
+    return paginate_query(sql, False)
+
+
+def paginate_query(sql, scalar=False):
+    """
+    统一分分页查询操作
+    Args:
+        sql:查询SQL
+        scalar:是否需要scalars
+
+    Returns:
+        数据列表, 分页信息
+    """
+    size = request.args.get('page_size', type=int, default=20)
+    if size < 1 or size > 100:
+        return response(ResponseEnum.InvalidInput, msg=f'size必须是1-100')
+    page = request.args.get('page', type=int, default=1)
+    sql = sql.limit(size).offset((page - 1) * size)
+    return execute_sql(sql, many=True, scalar=scalar)

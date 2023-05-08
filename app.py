@@ -10,6 +10,7 @@ from flask_cors import CORS  # 解决前后端联调的跨域问题
 from flask_jwt_extended import JWTManager
 from flask_jwt_extended import get_jwt_identity
 from flask_jwt_extended import verify_jwt_in_request
+from sqlalchemy.engine import Row
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import MethodNotAllowed
 from werkzeug.exceptions import NotFound
@@ -20,6 +21,7 @@ from constants import KAFKA_API_REQUEST_LOGS
 from enums import Enum
 from enums import ResponseEnum
 from models import ApiRequestLogs
+from models import ModelTemplate
 from models import User
 from utils import Kafka
 from utils import logger
@@ -40,6 +42,10 @@ class ExtensionJSONEncoder(JSONEncoder):
             return obj.value
         if isinstance(obj, datetime):
             return obj.strftime('%Y-%m-%d %H:%M:%S')
+        if isinstance(obj, Row):
+            return dict(obj._mapping)
+        if isinstance(obj, ModelTemplate):
+            return obj.jsonify()
         return super(ExtensionJSONEncoder, self).default(obj)
 
 

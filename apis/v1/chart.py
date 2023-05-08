@@ -9,4 +9,4 @@ from flask import Blueprint
 
 from . import version
 
-bp = Blueprint('chart', __name__, url_prefix=f'/api/{version}/chart')
+bp = Blueprint(__name__.split('.')[-1], __name__, url_prefix=f'/api/{version}/chart')

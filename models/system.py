@@ -11,7 +11,7 @@ from ipaddress import IPv4Address
 from .base import *
 
 
-class ApiRequestLogs(APModelBase):
+class ApiRequestLogs(OLAPModelBase):
     """
     接口请求记录
     """
@@ -26,5 +26,3 @@ class ApiRequestLogs(APModelBase):
     duration: Union[Column, int] = Column(types.UInt32, comment='响应延迟ms')
     source_ip: Union[Column, IPv4Address] = Column(types.IPv4, comment='源IP')
     destination_ip: Union[Column, IPv4Address] = Column(types.IPv4, comment='目的IP')
-    # request: Union[Column, str] = Column(types.String, comment='请求参数')
-    # response: Union[Column, str] = Column(types.String, comment='响应参数')

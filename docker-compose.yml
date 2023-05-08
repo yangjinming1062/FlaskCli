@@ -8,6 +8,7 @@ services:
     env_file: ./docker.env
     volumes:
       - ./clickhouse-persistence:/bitnami/clickhouse
+      - ./migrations/olap:/docker-entrypoint-initdb.d
     ports:
       - "8123:8123"
       - "9000:9000"

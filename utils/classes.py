@@ -10,7 +10,10 @@ import json
 import redis
 from confluent_kafka import Consumer
 from confluent_kafka import Producer
+from sqlalchemy import create_engine
 
+from config import DATABASE_CLICKHOUSE_URI
+from config import DATABASE_MYSQL_URI
 from config import KAFKA_CONSUMER_TIMEOUT
 from config import KAFKA_GROUP
 from config import KAFKA_HOST
@@ -21,6 +24,9 @@ from config import REDIS_HOST
 from config import REDIS_PASSWORD
 from config import REDIS_PORT
 from utils import logger
+
+OLTP_ENGINE = create_engine(DATABASE_MYSQL_URI, pool_size=150, pool_recycle=60)
+OLAP_ENGINE = create_engine(DATABASE_CLICKHOUSE_URI)
 
 _redis_pool = redis.ConnectionPool(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True)
 Redis = redis.Redis(connection_pool=_redis_pool)

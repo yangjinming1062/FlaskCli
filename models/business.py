@@ -13,7 +13,7 @@ from werkzeug.security import generate_password_hash
 from .base import *
 
 
-class User(TPModelBase):
+class User(OLTPModelBase):
     """
     用户信息
     """
@@ -28,7 +28,8 @@ class User(TPModelBase):
     @classmethod
     def search(cls, query_value):
         sql = select(cls).where(or_(cls.account == query_value, cls.phone == query_value, cls.email == query_value))
-        return execute_sql(sql, tp_public_session, expect_list=False, keyword=0)
+        result, flag = execute_sql(sql, many=False)
+        return result if flag else None
 
     @staticmethod
     def generate_hash(raw_password):
