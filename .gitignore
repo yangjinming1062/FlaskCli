@@ -64,4 +64,4 @@ venv.bak/
 
 # Custom
 logs
-*-persistence
+persistence

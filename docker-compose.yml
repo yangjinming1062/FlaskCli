@@ -7,7 +7,7 @@ services:
     container_name: flaskcli-clickhouse
     env_file: ./docker.env
     volumes:
-      - ./clickhouse-persistence:/bitnami/clickhouse
+      - ./persistence/clickhouse:/bitnami/clickhouse
       - ./migrations/olap:/docker-entrypoint-initdb.d
     ports:
       - "8123:8123"
@@ -21,27 +21,19 @@ services:
     container_name: flaskcli-mysql
     env_file: ./docker.env
     volumes:
-      - ./mysql-persistence:/var/lib/mysql
+      - ./persistence/mysql:/var/lib/mysql
     ports:
       - "3306:3306"
 
-  flaskcli-zookeeper:
-    restart: always
-    image: bitnami/zookeeper:3.8.0
-    container_name: flaskcli-zookeeper
-    env_file: ./docker.env
-    ports:
-      - "2181:2181"
-
   flaskcli-kafka:
     restart: always
-    image: bitnami/kafka:3.3.1
+    image: bitnami/kafka:3.4.0
     container_name: flaskcli-kafka
     env_file: ./docker.env
+    volumes:
+      - ./persistence/kafka:/bitnami
     ports:
       - "9092:9092"
-    depends_on:
-      - flaskcli-zookeeper
 
   flaskcli-redis:
     restart: always
@@ -51,28 +43,22 @@ services:
     ports:
       - "6379:6379"
 
-  flaskcli-init:
-    image: yangjinming/flaskcli:latest
-    container_name: flaskcli-init
-    env_file: ./docker.env
-    depends_on:
-      - flaskcli-mysql
-      - flaskcli-clickhouse
-    command:
-      - /bin/bash
-      # /opt/flask取决于Dockerfile中的WORKDIR
-      - /opt/flask/initDB.sh
-
   flaskcli-service:
     restart: always
     # 不依赖镜像直接在docker-compose中构建后运行（可以但不推荐）
-    #    build:
-    #      context: ./
-    #      dockerfile: Dockerfile
-    image: yangjinming/flaskcli:latest
+    build:
+      context: ./
+      dockerfile: Dockerfile
+#    image: yangjinming/flaskcli:latest
     container_name: flaskcli-service
     env_file: ./docker.env
     volumes:
       - ./logs:/opt/flask/logs
     ports:
       - "5000:5000"
+    depends_on:
+      - flaskcli-clickhouse
+      - flaskcli-mysql
+      - flaskcli-kafka
+      - flaskcli-redis
+    command: "/bin/bash -c 'source ./initDB.sh && gunicorn main:app -c ./run.py'"

@@ -10,7 +10,10 @@ WORKDIR /opt/flask
 COPY ./requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple/
 # 拷贝项目内容
-COPY . .
+COPY ./src .
+# 添加数据库迁移的内容可以用于执行初始化
+COPY ./migrations ./migrations
+COPY ./initDB.sh .
 
 EXPOSE 5000
 

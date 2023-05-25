@@ -41,7 +41,7 @@ class ExtensionJSONEncoder(JSONEncoder):
         if isinstance(obj, Enum):
             return obj.value
         if isinstance(obj, datetime):
-            return obj.strftime('%Y-%m-%d %H:%M:%S')
+            return obj.strftime('%Y-%m-%dT%H:%M:%S')
         if isinstance(obj, Row):
             return dict(obj._mapping)
         if isinstance(obj, ModelTemplate):

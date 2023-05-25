@@ -59,7 +59,7 @@ CREATE TABLE api_request_logs_queue
 
     `destination_ip` IPv4
 ) ENGINE = Kafka
-      SETTINGS kafka_broker_list = 'kafka:9092',
+      SETTINGS kafka_broker_list = 'flaskcli-kafka:9092',
           kafka_topic_list = 'ApiRequestLogs',
           kafka_group_name = 'write-data',
           kafka_format = 'JSONEachRow',
