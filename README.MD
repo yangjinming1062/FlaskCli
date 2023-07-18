@@ -1,5 +1,5 @@
 ![Flask](https://img.shields.io/badge/flask-v2.0+-blue)
-![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-v1.4+-blue)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-v2.0+-blue)
 <br/>
 <h1 align="center">
 Flask后端项目框架

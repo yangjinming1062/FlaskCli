@@ -1,10 +1,9 @@
 ---
 version: '3'
 services:
-  flaskcli-clickhouse:
+  clickhouse:
     restart: always
-    image: bitnami/clickhouse:23.2.2
-    container_name: flaskcli-clickhouse
+    image: bitnami/clickhouse:23.4.2
     env_file: ./docker.env
     volumes:
       - ./persistence/clickhouse:/bitnami/clickhouse
@@ -12,53 +11,46 @@ services:
     ports:
       - "8123:8123"
       - "9000:9000"
-      - "9005:9005"
-      - "9009:9009"
 
-  flaskcli-mysql:
+  mysql:
     restart: always
-    image: mysql:8.0.32
-    container_name: flaskcli-mysql
+    image: bitnami/mysql:8.0
     env_file: ./docker.env
     volumes:
-      - ./persistence/mysql:/var/lib/mysql
+      - ./persistence/mysql:/bitnami/mysql/data
     ports:
       - "3306:3306"
 
-  flaskcli-kafka:
+  kafka:
     restart: always
     image: bitnami/kafka:3.4.0
-    container_name: flaskcli-kafka
     env_file: ./docker.env
     volumes:
       - ./persistence/kafka:/bitnami
     ports:
       - "9092:9092"
+      - "9093:9093"
 
-  flaskcli-redis:
+  redis:
     restart: always
     image: bitnami/redis:7.0
-    container_name: flaskcli-redis
     env_file: ./docker.env
     ports:
       - "6379:6379"
 
-  flaskcli-service:
+  backend:
     restart: always
-    # 不依赖镜像直接在docker-compose中构建后运行（可以但不推荐）
     build:
       context: ./
-      dockerfile: Dockerfile
-#    image: yangjinming/flaskcli:latest
-    container_name: flaskcli-service
+      dockerfile: ./backend/Dockerfile
     env_file: ./docker.env
     volumes:
       - ./logs:/opt/flask/logs
     ports:
       - "5000:5000"
     depends_on:
-      - flaskcli-clickhouse
-      - flaskcli-mysql
-      - flaskcli-kafka
-      - flaskcli-redis
+      - clickhouse
+      - mysql
+      - kafka
+      - redis
     command: "/bin/bash -c 'source ./initDB.sh && gunicorn main:app -c ./run.py'"

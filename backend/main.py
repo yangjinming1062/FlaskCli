@@ -1,28 +1,24 @@
 import os
-from datetime import datetime
 from time import time
 
 from flask import Flask
 from flask import Response
 from flask import request
-from flask.json import JSONEncoder
 from flask_cors import CORS  # 解决前后端联调的跨域问题
 from flask_jwt_extended import JWTManager
 from flask_jwt_extended import get_jwt_identity
 from flask_jwt_extended import verify_jwt_in_request
-from sqlalchemy.engine import Row
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import MethodNotAllowed
 from werkzeug.exceptions import NotFound
 
 from apis import Blueprints
 from apis import SKIP_AUTH_REGEX
-from constants import KAFKA_API_REQUEST_LOGS
-from enums import Enum
-from enums import ResponseEnum
+from enums import RespEnum
 from models import ApiRequestLogs
-from models import ModelTemplate
 from models import User
+from utils import Constants
+from utils import ExtensionJSONEncoder
 from utils import Kafka
 from utils import logger
 from utils.api import response
@@ -30,23 +26,6 @@ from utils.api import response
 jwt = JWTManager()
 cors = CORS()
 kafka = Kafka()
-
-
-class ExtensionJSONEncoder(JSONEncoder):
-    """
-    处理枚举等各种无法JSON序列化的类型
-    """
-
-    def default(self, obj):
-        if isinstance(obj, Enum):
-            return obj.value
-        if isinstance(obj, datetime):
-            return obj.strftime('%Y-%m-%dT%H:%M:%S')
-        if isinstance(obj, Row):
-            return dict(obj._mapping)
-        if isinstance(obj, ModelTemplate):
-            return obj.jsonify()
-        return super(ExtensionJSONEncoder, self).default(obj)
 
 
 def create_app():
@@ -87,12 +66,13 @@ def register_handler(flask_app):
         try:
             _ = verify_jwt_in_request()
         except Exception as ex:
-            return response(ResponseEnum.UnAuthorized, msg=str(ex))
+            logger.error(ex)
+            return response(RespEnum.UnAuthorized)
         if (uid := get_jwt_identity()) is None:  # 获取token中记录的uid信息
-            return response(ResponseEnum.Forbidden)
+            return response(RespEnum.Forbidden)
         # 登录的token还有效，但是token内的uid已经不在来（几乎不存在，但有可能）
         if not User.read(uid):
-            return response(ResponseEnum.Forbidden, msg='登录无效，请重新登录')
+            return response(RespEnum.Forbidden)
 
     @flask_app.after_request
     def log_record(resp: Response):
@@ -120,33 +100,33 @@ def register_handler(flask_app):
         log.duration = int((time() - request.start_time) * 1000)
         log.source_ip = request.remote_addr
         log.destination_ip = request.server[0]
-        kafka.produce(KAFKA_API_REQUEST_LOGS, log.jsonify())  # WARNING！！！ 频率低就直接flush，频率高避免性能影响可以单独开一个线程定时flush
+        kafka.produce(Constants.Topic_ReqLogs, log.json())  # WARNING！！！ 频率低就直接flush，频率高避免性能影响可以单独开一个线程定时flush
         return resp
 
     @flask_app.errorhandler(AssertionError)
     def handle_assertion_error(e: AssertionError):
         logger.error(e)
-        return response(ResponseEnum.InvalidInput, msg=f'【非法参数】{e}')
+        return response(RespEnum.IllegalParams)
 
     @flask_app.errorhandler(NotFound)
     def handle_path_error(_):
         logger.info(f'未定义的地址：{request.base_url}')
-        return response(ResponseEnum.NotFound, msg='【API地址错误】')
+        return response(RespEnum.UriNotFound)
 
     @flask_app.errorhandler(MethodNotAllowed)
     def handle_method_error(_):
         logger.info(f'未定义的地址：{request.base_url}，方法：{request.method}')
-        return response(ResponseEnum.NotFound, msg='【请求方法错误】')
+        return response(RespEnum.MethodNotFound)
 
     @flask_app.errorhandler(SQLAlchemyError)
     def handle_sqlalchemy_error(e: SQLAlchemyError):
-        logger.error(e)
-        return response(ResponseEnum.Error, msg=f'【数据库错误】')
+        logger.exception(e)
+        return response(RespEnum.DBError)
 
     @flask_app.errorhandler(Exception)
     def handle_exception(e: Exception):
-        logger.error(e)
-        return response(ResponseEnum.Error)
+        logger.exception(e)
+        return response(RespEnum.Error)
 
 
 app = create_app()

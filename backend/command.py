@@ -9,34 +9,27 @@ Options:
     --username=<username>        初始用户名 [default: 默认管理员]
     --password=<password>        初始用户密码 [default: m/W*0-nS0t5]
 """
-from time import sleep
-
 from docopt import docopt
 from sqlalchemy.orm import Session
 
-from utils import Kafka
+from models import OLTPEngine
 from models import User
-from utils import OLTP_ENGINE
+from utils import Kafka
+from utils import exceptions
 
 
+@exceptions()
 def init_user(account, username, password):
     """
     添加初始用户
     Returns:
 
     """
-    for _ in range(10):
-        try:
-            if not User.search('admin'):
-                with Session(OLTP_ENGINE) as session:
-                    session.add(User(username=username, account=account, password=password))
-                    session.commit()
-                print('Success!')
-                return
-        except:
-            # 如果数据库还没有迁移，那么就等待一会儿再初始化
-            sleep(10)
-    print('Failed!')
+    with Session(OLTPEngine) as session:
+        user = session.query(User).where(User.account == account).first()
+        if not user:
+            session.add(User(username=username, account=account, password=password))
+            session.commit()
 
 
 def init_database():

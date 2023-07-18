@@ -4,7 +4,7 @@ from alembic import context
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
-from config import DATABASE_MYSQL_URI
+from config import DATABASE_OLTP_URI
 from models import OLTPModelBase
 
 config = context.config
@@ -14,7 +14,7 @@ if config.config_file_name is not None:
 
 config.set_main_option(
     'sqlalchemy.url',
-    DATABASE_MYSQL_URI,
+    DATABASE_OLTP_URI,
 )
 target_metadata = OLTPModelBase.metadata
 
