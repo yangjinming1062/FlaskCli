@@ -5,8 +5,11 @@ Author      : jinming.yang@qingteng.cn
 Description : 泛化CRUD接口
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
+from typing import Dict
+from typing import List
+
+from apis.api import *
 from models import *
-from utils.api import *
 
 bp = get_blueprint(__name__)
 # 可以进行泛化操作的model及可以其包含的列
@@ -31,7 +34,10 @@ def target_verify_wrapper(function):
 
 
 @bp.route('/<target>', methods=['POST'])
-@api_wrapper(params={})
+@api_wrapper(
+    request_param={},
+    response_param={RespEnum.Created: ParamDefine(str)}
+)
 @target_verify_wrapper
 def post_target(target, **kwargs):
     """
@@ -41,7 +47,16 @@ def post_target(target, **kwargs):
 
 
 @bp.route('/<target>/search', methods=['POST'])
-@api_wrapper(params={'*page': int, '*size': int, 'query': dict, 'sort': list, 'field': list})
+@api_wrapper(
+    request_param={
+        '*page': ParamDefine(int, '页码', valid=lambda x: x > 0),
+        '*size': ParamDefine(int, '数量', valid=lambda x: 0 < x <= 100),
+        'sort': ParamDefine(List[str], '排序'),
+        'field': ParamDefine(List[str], '字段'),
+        'query': ParamDefine(Dict[str, Any]),
+    },
+    response_param={}
+)
 @target_verify_wrapper
 def search_target_list(target, **kwargs):
     """
@@ -51,7 +66,10 @@ def search_target_list(target, **kwargs):
 
 
 @bp.route('/<target>/<target_id>', methods=['GET'])
-@api_wrapper(params={})
+@api_wrapper(
+    request_param={},
+    response_param={RespEnum.OK: ParamDefine(Any)}
+)
 @target_verify_wrapper
 def get_target(target, target_id, **kwargs):
     """
@@ -65,7 +83,10 @@ def get_target(target, target_id, **kwargs):
 
 
 @bp.route('/<target>/<target_id>', methods=['PATCH'])
-@api_wrapper(params={})
+@api_wrapper(
+    request_param={},
+    response_param={RespEnum.NoContent: None}
+)
 @target_verify_wrapper
 def patch_target(target, target_id, **kwargs):
     """
@@ -75,7 +96,10 @@ def patch_target(target, target_id, **kwargs):
 
 
 @bp.route('/<target>', methods=['DELETE'])
-@api_wrapper(params={'*id': None})
+@api_wrapper(
+    request_param={'*id': ParamDefine(List[str], 'ID')},
+    response_param={RespEnum.NoContent: None},
+)
 @target_verify_wrapper
 def delete_target(target, **kwargs):
     """

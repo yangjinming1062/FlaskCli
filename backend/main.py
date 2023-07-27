@@ -21,7 +21,7 @@ from utils import Constants
 from utils import ExtensionJSONEncoder
 from utils import Kafka
 from utils import logger
-from utils.api import response
+from apis.api import response
 
 jwt = JWTManager()
 cors = CORS()

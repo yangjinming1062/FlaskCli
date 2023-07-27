@@ -9,13 +9,18 @@ from io import BytesIO
 
 from flask import send_file
 
-from utils.api import *
+from apis.api import *
 
 bp = get_blueprint(__name__)
 
 
 @bp.route('/download', methods=['GET'])
-@api_wrapper(params={})
+@api_wrapper(
+    request_param=None,
+    response_param={
+        RespEnum.OK: ParamDefine(Any, '文件')
+    },
+)
 def get_download(**kwargs):
     """
     文件下载下载

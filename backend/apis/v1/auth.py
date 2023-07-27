@@ -13,8 +13,8 @@ from flask_jwt_extended import get_jwt_identity
 from flask_jwt_extended import jwt_required
 from sqlalchemy import or_
 
+from apis.api import *
 from models import *
-from utils.api import *
 from utils.classes import Redis
 
 bp = get_blueprint(__name__)
@@ -27,7 +27,16 @@ def search(query_value):
 
 
 @bp.route('/login', methods=['POST'])
-@api_wrapper(params={'*account': str, '*password': str})
+@api_wrapper(
+    request_param={'*account': ParamDefine(str, '账号'), '*password': ParamDefine(str, '密码')},
+    response_param={
+        RespEnum.OK: ParamDefine({
+            'username': ParamDefine(str),
+            'access_token': ParamDefine(str),
+            'refresh_token': ParamDefine(str),
+        })
+    },
+)
 def post_login(**kwargs):
     if (user := search(kwargs['account'])) is None:
         return response(RespEnum.WrongPassword)
@@ -43,6 +52,12 @@ def post_login(**kwargs):
 
 @bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
+@api_wrapper(
+    request_param=None,
+    response_param={
+        RespEnum.OK: ParamDefine({'access_token': ParamDefine(str)})
+    },
+)
 def post_refresh(**kwargs):
     """
     利用refresh token获取新的access token
@@ -51,7 +66,12 @@ def post_refresh(**kwargs):
 
 
 @bp.route('/captcha', methods=['POST'])
-@api_wrapper(params={'*account': str, '*method': str})
+@api_wrapper(
+    request_param={'*account': ParamDefine(str, '账号'), '*method': ParamDefine(str, '发送方式')},
+    response_param={
+        RespEnum.NoContent: None
+    },
+)
 def post_captcha(**kwargs):
     """
     忘记密码，进行密码重置
@@ -65,7 +85,16 @@ def post_captcha(**kwargs):
 
 
 @bp.route('/password', methods=['POST'])
-@api_wrapper(params={'*account': str, '*captcha': int})
+@api_wrapper(
+    request_param={'*account': ParamDefine(str, '账号'), '*captcha': ParamDefine(int, '验证码')},
+    response_param={
+        RespEnum.OK: ParamDefine({
+            'username': ParamDefine(str),
+            'access_token': ParamDefine(str),
+            'refresh_token': ParamDefine(str),
+        })
+    },
+)
 def post_password(**kwargs):
     """
     密码重置

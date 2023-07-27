@@ -6,7 +6,10 @@ Description : API接口用到的工具方法实现
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
 from datetime import datetime
+from functools import partial
 from functools import wraps
+from typing import Any
+from typing import Iterable
 from typing import Union
 
 from flask import Blueprint
@@ -20,9 +23,42 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from enums import *
+from models import ModelTemplate
 from models import OLTPEngine
 from utils import execute_sql
 from utils import logger
+
+
+class ParamDefine:
+    """
+    API接口参数定义类
+    """
+    __slots__ = ('type', 'comment', 'default', 'valid', 'message')
+    type: Any
+    comment: str
+    default: Any
+    valid: Any
+    message: str
+
+    def __init__(self, type_, comment='', **kwargs):
+        """
+        参数定义
+        Args:
+            type_: 数据类型
+            comment: 注释
+            valid: 参数校验（一个返回bool值的校验函数）
+            message: 参数不满足时的错误提示
+        """
+        self.type = type_
+        self.comment = comment
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def __call__(self, *args, **kwargs):
+        """
+        确保类是callable的才可以放到List或Dict中
+        """
+        pass
 
 
 def get_blueprint(name):
@@ -51,84 +87,166 @@ def response(base_response: RespEnum, data=None):
     return jsonify(resp), status
 
 
-def api_wrapper(params: dict = None):
+def api_wrapper(request_param: dict = None, response_param: dict = None):
     """
     装饰器：统一处理API响应异常以及必要参数的校验
     Args:
-        params: 当前接口包含的字段（key为字段名称，value为字段类型），如果参数为必填在在名称前添加*
+        request_param: 当前接口包含的字段（key为字段名称，value为字段类型），如果参数为必填在在名称前添加*
+        response_param: 当前接口的响应数据结构，用于生成接口文档
 
     Returns:
         无异常则返回方法的返回值，异常返回Error
     """
 
-    def decorator(func):
+    def get_params():
+        """
+        获取请求参数
+        Returns:
+            请求参数
+        """
+        result = {}
+        # GET和DELETE按照规范是使用url参数
+        if request.method in ('GET', 'DELETE'):
+            for key in dict(request.args).keys():
+                # 兼容多个key的情况：例如?key=value1&key=value2
+                result[key] = request.args.getlist(key)
+        # 其他类型请求默认是JSON参数
+        else:
+            result = request.json
+        return result
 
-        def get_params():
-            req_params = {}
-            # GET和DELETE按照规范是使用url参数
-            if request.method in ('GET', 'DELETE'):
-                for key in dict(request.args).keys():
-                    # 兼容多个key的情况：例如?key=value1&key=value2
-                    req_params[key] = request.args.getlist(key)
-            # 其他类型请求默认是JSON参数
+    def set_value(define, value):
+        """
+        根据类型定义调整请求值
+        Args:
+            define: 类型定义
+            value: 参数值
+
+        Returns:
+            修改后的参数值
+        """
+        if define is Any:
+            # 参数可以是任意类型
+            return value
+        elif define is datetime:
+            # 时间类型
+            return datetime.fromisoformat(value)
+        elif issubclass(define, ModelTemplate):
+            # model定义
+            return define(**value)
+        else:
+            # 其他类型
+            return define(value)
+
+    def set_params(define, source, flag: bool):
+        """
+        根据参数定义生成请求参数
+        Args:
+            define: 参数定义
+            source: 请求参数
+            flag: 是否是GET或DELETE请求
+
+        Returns:
+            请求参数
+        """
+        if not isinstance(source, dict):
+            raise Exception(RespEnum.ParamsMissed)
+        result = {}
+        for key, value in define.items():
+            # 1. 判断是否为必填参数
+            if key.startswith('*'):
+                key = key[1:]
+                if key not in source:
+                    raise Exception(RespEnum.ParamsMissed)
+            # 2. 每一个属性都需要通过ParamDefine进行定义声明
+            assert isinstance(value, ParamDefine)
+            # 3. 判断非必填的参数是否存在
+            if key in source:
+                # 从这里开始需要对各种类型的参数进行处理
+                str_type = str(value.type)
+                # 3.1 List类型的嵌套
+                if str_type.startswith('typing.List'):
+                    if isinstance(source[key], list):
+                        l_type = value.type.__args__[0]
+                        if isinstance(l_type, ParamDefine):
+                            # List需要套一层ParamDefine的也就只有dict，不然普通的类型直接放到List里面就行，所以这里需要按嵌套结构处理
+                            result = [set_params(l_type.type, row, flag) for row in source[key]]
+                        else:
+                            result[key] = list(map(partial(set_value, l_type), source[key]))
+                    else:
+                        raise Exception(RespEnum.ParamsValueError)
+                # 3.2 Dict意味着允许传递对象类型的参数，但是具体有哪些key未作限定
+                elif str_type.startswith('typing.Dict'):
+                    assert isinstance(source[key], dict)
+                    k_type = value.__args__[0]
+                    v_type = value.__args__[1]
+                    result[key] = {set_value(k_type, k): set_value(v_type, v) for k, v in source[key].items()}
+                # 3.3 嵌套结构
+                elif isinstance(value.type, dict):
+                    result[key] = set_params(value.type, source[key], flag)
+                # 3.4 其他常规情况
+                else:
+                    if flag and len(source[key]) == 1:  # Get、Delete获取的都是list
+                        result[key] = set_value(value.type, source[key][0])
+                    else:
+                        result[key] = set_value(value.type, source[key])
             else:
-                req_params = request.json
-            return req_params
+                # 3.1 没传参数则看看有没有默认值
+                if hasattr(value, 'default'):
+                    result[key] = value.default
+                    continue
+            # 4. 如果提供了校验函数则校验数据取值
+            if hasattr(value, 'valid'):
+                if isinstance(result[key], Iterable):
+                    if all(map(value.valid, result[key])):
+                        continue
+                else:
+                    if value.valid(result[key]):
+                        continue
+                # 4.1 校验通过就continue了，走到这说明校验没通过
+                raise Exception(RespEnum.ParamsRangeError)
+        return result
+
+    def decorator(func):
+        func.__apispec__ = {'request': request_param, 'response': response_param}
 
         @wraps(func)
         def wrapper(*args, **kwargs):
+            kwargs['oltp_session'] = Session(OLTPEngine)
             try:
-                # 如果不存在必填参数和任何参数，直接调用原函数，避免进行不必要的参数校验
-                if params is None:
+                if request_param is None:
+                    # 参数为空说明是不需要参数的接口
                     return func(*args, **kwargs)
-                # 1.先获取参数
-                req_params = get_params()
-                # 2.提取必填参数
-                requires = set()
-                for key in {key for key in params.keys() if key.startswith('*')}:
-                    requires.add(key[1:])
-                    params[key[1:]] = params.pop(key)
-                # 3.检查必填参数是否有缺失的
-                if requires and (missed := requires - req_params.keys()):
-                    logger.info(missed)
-                    return response(RespEnum.ParamsMissed)
-                # 4.如果不存在params则直接返回
-                if not params:
-                    kwargs.update(req_params)
-                    return func(*args, **kwargs)
-                # 5.检查是否有垃圾参数
-                if junk := req_params.keys() - params.keys():
-                    logger.info(junk)
-                    return response(RespEnum.IllegalParams)
-                # 6.检查参数类型，并将对应的参数转成目标类型
-                for k, t in params.items():
-                    if k in req_params:
-                        # GET和DELETE的params默认都是兼容批量的，如果不指定需要列表则获取到单一参数时直接转换成对应类型
-                        if request.method in ('GET', 'DELETE') and t is not list and len(req_params[key]) == 1:
-                            req_params[key] = req_params[key][0]
-                        if t is None:
-                            # None为保留情况，此时不对参数类型进行校验
-                            continue
-                        elif t in (list, dict):
-                            # 复杂的嵌套类型暂时不做处理
-                            if not isinstance(req_params[k], t):
-                                return response(RespEnum.ParamsValueError)
-                        elif t is datetime:
-                            req_params[k] = datetime.fromisoformat(req_params[k])
-                        else:
-                            # args类型参数顺便进行类型转换
-                            req_params[k] = t(req_params[k])
+                if request_param:
+                    # 定义的请求参数要求
+                    req_params = set_params(request_param, get_params(), request.method in ('GET', 'DELETE'))
+                else:
+                    # 这种情况是参数定义为空字典，表示可以接收任意的请求参数
+                    req_params = get_params()
                 kwargs.update(req_params)
+                kwargs['oltp_session'].begin()
                 return func(*args, **kwargs)
+            except AssertionError as ex:
+                kwargs['oltp_session'].rollback()
+                logger.info(ex)
+                return response(RespEnum.InvalidInput)
             except KeyError as ex:
+                kwargs['oltp_session'].rollback()
                 logger.info(ex)
                 return response(RespEnum.ParamsMissed)
             except ValueError as ex:
+                kwargs['oltp_session'].rollback()
                 logger.info(ex)
                 return response(RespEnum.ParamsValueError)
             except Exception as ex:
-                logger.exception(str(ex), module=func.__module__, func=func.__name__)
-                return response(RespEnum.Error)
+                kwargs['oltp_session'].rollback()
+                logger.info(ex)
+                if isinstance(ex.args[0], RespEnum):
+                    return response(ex.args[0])
+                else:
+                    return response(RespEnum.Error)
+            finally:
+                kwargs['oltp_session'].close()
 
         return wrapper
 
