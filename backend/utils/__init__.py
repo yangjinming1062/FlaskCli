@@ -11,13 +11,13 @@ import sys
 from loguru import logger
 
 from .classes import ExtensionJSONEncoder
+from .classes import ImageCode
 from .classes import Kafka
 from .classes import Redis
 from .classes import Singleton
 from .constants import Constants
 from .functions import exceptions
 from .functions import execute_sql
-from .functions import shadow_str
 
 # 日志记录
 if not os.path.exists('./logs'):

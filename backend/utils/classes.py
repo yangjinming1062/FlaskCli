@@ -6,14 +6,19 @@ Description : 工具类定义
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
 import json
+import random
+import string
 from datetime import datetime
-from enum import Enum
+from ipaddress import IPv4Address
 
 import pytz
 import redis
+from PIL import Image
+from PIL import ImageDraw
+from PIL import ImageFont
 from confluent_kafka import Consumer
 from confluent_kafka import Producer
-from sqlalchemy import Row
+from sqlalchemy.engine import Row
 
 from config import KAFKA_CONSUMER_CONFIG
 from config import KAFKA_CONSUMER_TIMEOUT
@@ -21,6 +26,7 @@ from config import KAFKA_PRODUCER_CONFIG
 from config import REDIS_HOST
 from config import REDIS_PORT
 from config import REDIS_PWD
+from enums import *
 from models import ModelTemplate
 from utils import logger
 
@@ -127,11 +133,69 @@ class ExtensionJSONEncoder(json.JSONEncoder):
 
     def default(self, obj):
         if isinstance(obj, Enum):
-            return obj.value
+            return obj.name
         if isinstance(obj, datetime):
             return obj.astimezone(tz).isoformat(timespec='seconds')
         if isinstance(obj, Row):
             return dict(obj._mapping)
         if isinstance(obj, ModelTemplate):
             return obj.json()
+        if isinstance(obj, IPv4Address):
+            return str(obj)
         return json.JSONEncoder.default(self, obj)
+
+
+class ImageCode:
+    CODE_LEN = 4
+
+    @staticmethod
+    def rand_color():
+        """
+        生成用于绘制字符串的随机颜色(可以随意指定0-255之间的数字)
+        """
+        red = random.randint(32, 200)
+        green = random.randint(22, 255)
+        blue = random.randint(0, 200)
+        return red, green, blue
+
+    @staticmethod
+    def gen_text():
+        """
+        生成4位随机字符串
+        """
+        # sample 用于从一个大的列表或字符串中，随机取得N个字符，来构建出一个子列表
+        return ''.join(random.sample(string.ascii_letters, ImageCode.CODE_LEN))
+
+    @staticmethod
+    def draw_lines(draw, num, width, height):
+        """
+        绘制干扰线
+        """
+        for num in range(num):
+            x1 = random.randint(0, width / 2)
+            y1 = random.randint(0, height / 2)
+            x2 = random.randint(0, width)
+            y2 = random.randint(height / 2, height)
+            draw.line(((x1, y1), (x2, y2)), fill='black', width=1)
+
+    def draw_verify_code(self):
+        """
+        绘制验证码图片
+        """
+        code = self.gen_text()
+        width, height = 120, 50  # 设定图片大小，可根据实际需求调整
+        im = Image.new('RGB', (width, height), 'white')  # 创建图片对象，并设定背景色为白色
+        font = ImageFont.truetype(font='arial.ttf', size=40)  # 选择使用何种字体及字体大小
+        draw = ImageDraw.Draw(im)  # 新建ImageDraw对象
+
+        # 绘制字符串
+        for i in range(4):
+            draw.text(
+                (5 + random.randint(-3, 3) + 23 * i, 5 + random.randint(-3, 3)),
+                text=code[i],
+                fill=self.rand_color(),
+                font=font
+            )
+            # self.draw_lines(draw, 4, width, height)  # 绘制干扰线
+        # im.show()  # 如需临时调试，可以直接将生成的图片显示出来
+        return im, code

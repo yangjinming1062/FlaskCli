@@ -11,7 +11,7 @@ from typing import List
 from apis.api import *
 from models import *
 
-bp = get_blueprint(__name__)
+bp = get_blueprint(__name__, '泛化CRUD')
 # 可以进行泛化操作的model及可以其包含的列
 LEGAL_MODELS = {key: value.get_columns() for key, value in OLTPModelsDict.items()}
 

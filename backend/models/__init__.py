@@ -5,16 +5,22 @@ Author      : jinming.yang
 Description : 在__init__.py中统一导入
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
-from .business import *
-from .system import *
+from .base import ModelTemplate
+from .base import OLAPEngine
+from .base import OLAPModelBase
+from .base import OLTPEngine
+from .base import OLTPModelBase
+from .business import User
+from .system import ApiRequestLogs
 
 _base = [
-    'OLAPModelBase',
-    'OLTPModelBase',
-    'OLAPModelsDict',
-    'OLTPModelsDict',
     'OLAPEngine',
+    'OLAPModelBase',
+    'OLAPModelsDict',
     'OLTPEngine',
+    'OLTPModelBase',
+    'OLTPModelsDict',
+    'ModelTemplate'
 ]
 
 OLAPModelsDict = {n: m for n, m in locals().items() if isinstance(m, type) and issubclass(m, OLAPModelBase)}

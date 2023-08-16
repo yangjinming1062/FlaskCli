@@ -11,20 +11,20 @@ env = os.environ.get
 
 _HOST = env('HOST', '127.0.0.1')
 
-# MySQL连接配置
-_M_HOST = env('MYSQL_HOST', _HOST)
-_M_PORT = int(env('MYSQL_PORT', 3306))
-_M_USER = env('MYSQL_USERNAME', 'root')
-_M_PWD = env('MYSQL_ROOT_PASSWORD')
-_M_DB = env('MYSQL_DATABASE')
-DATABASE_OLTP_URI = f'mysql+mysqlconnector://{_M_USER}:{_M_PWD}@{_M_HOST}:{_M_PORT}/{_M_DB}'
-# ClickHouse连接配置
-_C_HOST = env('CLICKHOUSE_HOST', _HOST)
-_C_PORT = int(env('CLICKHOUSE_PORT', 9000))
-_C_USER = env('CLICKHOUSE_ADMIN_USER', 'default')
-_C_PWD = env('CLICKHOUSE_ADMIN_PASSWORD')
-_C_DB = env('CLICKHOUSE_DATABASE')
-DATABASE_OLAP_URI = f'clickhouse://{_C_USER}:{_C_PWD}@{_C_HOST}:{_C_PORT}/{_C_DB}'
+# OLTP连接配置
+_T_HOST = env('OLTP_HOST', _HOST)
+_T_PORT = int(env('OLTP_PORT', 5432))
+_T_USER = env('POSTGRESQL_USERNAME', 'postgres')
+_T_PWD = env('POSTGRESQL_PASSWORD')
+_T_DB = env('POSTGRESQL_DATABASE')
+DATABASE_OLTP_URI = f'postgresql://{_T_USER}:{_T_PWD}@{_T_HOST}:{_T_PORT}/{_T_DB}'
+# OLAP连接配置
+_A_HOST = env('OLAP_HOST', _HOST)
+_A_PORT = int(env('OLTP_PORT', 9000))
+_A_USER = env('CLICKHOUSE_ADMIN_USER', 'default')
+_A_PWD = env('CLICKHOUSE_ADMIN_PASSWORD')
+_A_DB = env('CLICKHOUSE_DATABASE')
+DATABASE_OLAP_URI = f'clickhouse://{_A_USER}:{_A_PWD}@{_A_HOST}:{_A_PORT}/{_A_DB}'
 # Redis连接配置
 REDIS_HOST = env('REDIS_HOST', _HOST)
 REDIS_PORT = int(env('REDIS_PORT', 6379))

@@ -1,5 +1,4 @@
----
-version: '3'
+version: '3.1'
 services:
   clickhouse:
     restart: always
@@ -12,24 +11,34 @@ services:
       - "8123:8123"
       - "9000:9000"
 
-  mysql:
+  postgres:
     restart: always
-    image: bitnami/mysql:8.0
-    env_file: ./docker.env
+    image: bitnami/postgresql:14.8.0
+    env_file: docker.env
     volumes:
-      - ./persistence/mysql:/bitnami/mysql/data
+      - ./persistence/postgresql:/bitnami/postgresql
     ports:
-      - "3306:3306"
+      - "5432:5432"
+
+
+  zookeeper:
+    image: bitnami/zookeeper:3.8
+    env_file: ./docker.env
+    ports:
+      - "2181:2181"
+    volumes:
+      - ./persistence/zookeeper:/bitnami
 
   kafka:
     restart: always
-    image: bitnami/kafka:3.4.0
+    image: bitnami/kafka:3.4
     env_file: ./docker.env
-    volumes:
-      - ./persistence/kafka:/bitnami
     ports:
       - "9092:9092"
-      - "9093:9093"
+    volumes:
+      - ./persistence/kafka:/bitnami
+    depends_on:
+      - zookeeper
 
   redis:
     restart: always
@@ -45,12 +54,12 @@ services:
       dockerfile: ./backend/Dockerfile
     env_file: ./docker.env
     volumes:
+      - ./migrations:/opt/flask/migrations
       - ./logs:/opt/flask/logs
     ports:
       - "5000:5000"
     depends_on:
       - clickhouse
-      - mysql
-      - kafka
+      - postgres
       - redis
     command: "/bin/bash -c 'source ./initDB.sh && gunicorn main:app -c ./run.py'"

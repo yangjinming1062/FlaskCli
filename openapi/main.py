@@ -20,7 +20,7 @@ from schemas import *
 # 忽略的请求类型
 _MISSED_METHOD = {'OPTIONS', 'HEAD'}
 # 参数url上的方法
-_PARAMS_METHOD = {'get', 'delete'}
+_PARAMS_METHOD = {'GET', 'DELETE'}
 
 
 def get_apispec(data, info: OpenApiInfo) -> OpenApiDefine:
@@ -71,7 +71,7 @@ def _from_app(app, info):
         if isinstance(field, Integer):
             return {'type': 'integer'}
         if isinstance(field, Enum):
-            return {'type': 'string', 'enum': [s.lower() for s in field.enums]}
+            return {'type': 'string', 'enum': field.enums}
         if isinstance(field, String):
             return {'type': 'string'}
         if isinstance(field, Float):
@@ -109,7 +109,7 @@ def _from_app(app, info):
         elif isinstance(t, ModelTemplate):
             tmp = OpenApiReference(_model_ref(t.__name__))
         elif issubclass(type(t), EnumMeta):
-            tmp = OpenApiSchema(type='string', enum=[str(e.value) for e in list(t)], format='enum')
+            tmp = OpenApiSchema(type='string', enum=[str(e.name) for e in list(t)], format='enum')
         elif t is datetime:
             tmp = OpenApiSchema(type='string', format='date-time')
         elif t is str:
@@ -130,13 +130,17 @@ def _from_app(app, info):
                 tmp.description = param.comment
         return tmp
 
-    def _get_content(data):
+    def _get_content(data, header):
         """
         生成OpenApiRequestBody和OpenApiResponse的content
         """
-        return {'application/json': OpenApiMediaType(schema=_get_schema(data or {}))}
+        if header and 'Content-Type' in header:
+            key = header['Content-Type']
+        else:
+            key = 'application/json'
+        return {key: OpenApiMediaType(schema=_get_schema(data or {}))}
 
-    def _get_parameters(data):
+    def _get_parameters(data, in_='query'):
         """
         生成OpenApiParameter
         """
@@ -146,12 +150,12 @@ def _from_app(app, info):
             if k.startswith('*'):
                 required = True
                 k = k[1:]
-            param = OpenApiParameter(k, 'query', required=required, schema=_get_schema(v))
+            param = OpenApiParameter(k, in_, required=required, schema=_get_schema(v))
             # 添加注释
             if v.comment:
                 param.description = v.comment
             # 添加示例值
-            if v.default:
+            if hasattr(v, 'default'):
                 param.example = v.default
             yield param
 
@@ -168,22 +172,32 @@ def _from_app(app, info):
         # 1.添加路径参数
         for path_arg in rule.arguments:
             operation.parameters.append(OpenApiParameter(path_arg, 'path', required=True))
-        # 2.生成params参数
-        if method in _PARAMS_METHOD:
-            operation.parameters.extend(_get_parameters(endpoint_func.__apispec__['request']))
-        # 3.生成请求体参数
-        else:
-            operation.requestBody = OpenApiRequestBody(_get_content(endpoint_func.__apispec__['request']))
+        # 2.生成请求头参数
+        if req_header := endpoint_func.__apispec__['request_header']:
+            operation.parameters.extend(_get_parameters(req_header, 'header'))
+        # 3. 生成请求参数
+        if req_param := endpoint_func.__apispec__['request']:
+            # 3.1 生成params参数
+            if method in _PARAMS_METHOD:
+                operation.parameters.extend(_get_parameters(req_param))
+            # 3.2 生成请求体参数
+            else:
+                operation.requestBody = OpenApiRequestBody(_get_content(req_param, req_header))
         # 4.生成响应参数
         for resp, data in endpoint_func.__apispec__['response'].items():
-            code, body = resp.value
-            operation.responses[str(code)] = OpenApiResponse(body['message'], content=_get_content(data))
+            code, msg = resp.value
+            body = {
+                'code': resp.name,
+                'message': msg
+            }
+            content = _get_content(data, endpoint_func.__apispec__['response_header'])
+            operation.responses[str(code)] = OpenApiResponse(body, content=content)
         return operation
 
     # ***从这开始from_app的代码***
     apispec = OpenApiDefine(info, paths={})
     # 1.根据蓝图定义指定tags
-    apispec.tags = [OpenApiTag(bp) for bp in app.blueprints.keys()]
+    apispec.tags = [OpenApiTag(bp.name) for bp in app.blueprints.values()]
     # 2. 根据model定义生成schema定义
     schemas = {}
     # 2.1 这里把OLAP、OLTP的定义都进行了导出，按需调整
@@ -231,5 +245,5 @@ def _from_data(data, info):
 
 
 if __name__ == '__main__':
-    api = get_apispec(app, OpenApiInfo('flaskcli', '1.0'))
+    api = get_apispec(app, OpenApiInfo('flaskcli', 'mvp'))
     doc = api.to_file('schema.json')

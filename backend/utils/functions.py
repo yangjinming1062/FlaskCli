@@ -2,10 +2,11 @@
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 File Name   : functions.py
 Author      : jinming.yang
-Description : 工具方法定义实现处
+Description : 基础方法的定义实现
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
 from functools import wraps
+from typing import Union
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -16,31 +17,6 @@ from models import OLTPEngine
 from utils import logger
 
 _OLAP_TABLES = {item.__tablename__ for item in OLAPModelsDict.values()}
-
-
-def exceptions(default=None):
-    """
-    装饰器：异常捕获
-    Args:
-        default: 当发生异常时返回的内容，默认为None
-
-    Returns:
-        无异常则返回方法的返回值，异常返回default
-    """
-
-    def decorator(func):
-
-        @wraps(func)
-        def wrapper(*args, **kw):
-            try:
-                return func(*args, **kw)
-            except Exception as ex:
-                logger.exception(ex)
-                return default
-
-        return wrapper
-
-    return decorator
 
 
 def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, session=None):
@@ -57,7 +33,7 @@ def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, se
         当SQL是查询类语句时：返回列表、实例对象、Row对象
         当SQL是非查询类语句时：返回受影响的行数/错误消息/None, 是否执行成功
     """
-    tp_flag = True
+    tp_flag = session is not OLAPEngine
     if sql.is_select:
         if session_flag := session is None:
             if sql.froms[0].name in _OLAP_TABLES:
@@ -67,7 +43,11 @@ def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, se
                 session = Session(OLTPEngine)
     else:
         if session_flag := session is None:
-            session = Session(OLTPEngine)
+            if sql.table.name in _OLAP_TABLES:
+                tp_flag = False
+                session = OLAPEngine
+            else:
+                session = Session(OLTPEngine)
     try:
         if sql.is_select:
             if not tp_flag:
@@ -87,10 +67,17 @@ def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, se
             return result
         elif sql.is_insert:
             # 插入返回新增实例的ID
-            result = session.execute(sql, params) if params is not None else session.execute(sql)
-            created_id = [key[0] for key in result.inserted_primary_key_rows]
-            session.flush()
-            return created_id if params else created_id[0], True
+            if tp_flag:
+                result = session.execute(sql, params) if params is not None else session.execute(sql)
+                created_id = [key[0] for key in result.inserted_primary_key_rows]
+                session.flush()
+                return created_id if params else created_id[0], True
+            else:
+                if params:
+                    sql = sql.values(params)
+                sql = sql.compile(compile_kwargs={"literal_binds": True}).string
+                session.execute(sql)
+                return '', True
         else:
             # 更新和删除返回受影响的行数
             result = session.execute(sql)
@@ -113,19 +100,89 @@ def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, se
             session.close()
 
 
-def shadow_str(source, head=3, tail=2) -> str:
+def exceptions(default=None):
     """
-    对敏感信息进行部分隐藏，只暴露头尾
+    装饰器：异常捕获
     Args:
-        source: 待隐藏字符串
-        head: 前面暴露几个字符
-        tail: 后面暴露几个字符
+        default: 当发生异常时返回的内容
 
     Returns:
-        隐藏信息后的字符串
+        无异常则返回方法的返回值，异常返回default的值
     """
-    if source is None:
-        return ''
-    if len(source) < head + tail:
-        return source
-    return f'{source[:head]}**{source[-tail:]}'
+
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kw):
+            try:
+                return func(*args, **kw)
+            except Exception as ex:
+                logger.exception(ex)
+                return default
+
+        return wrapper
+
+    return decorator
+
+
+@exceptions()
+def to_dict(obj) -> Union[dict, list]:
+    """
+    类对象转成字典
+    Args:
+        obj: 待转换类对象，自定义数据类型
+
+    Returns:
+        可序列化的对象
+    """
+
+    def is_simple_data(for_check) -> bool:
+        """
+        判断是否是系统内置的简单类型
+        Args:
+            for_check: 待检查的对象
+
+        Returns:
+            是否是内置类型
+        """
+        return not hasattr(for_check, '__dict__') and not hasattr(for_check, '__slots__')
+
+    if obj:
+        if isinstance(obj, list):
+            return [to_dict(item) for item in obj]
+        elif isinstance(obj, dict):
+            return obj  # 如果已经是基础的字典机构了就不用再转换了
+        elif is_simple_data(obj):
+            return obj
+        else:
+            if hasattr(obj, '__slots__'):
+                return {name: to_dict(getattr(obj, name, None)) for name in obj.__slots__}
+            elif hasattr(obj, '__dict__'):
+                return {name: to_dict(getattr(obj, name, None)) for name in obj.__dict__}
+
+
+@exceptions()
+def to_obj(js_obj):
+    """
+    将序列化数据变成数据实例
+    Args:
+        js_obj: JSON反序列化回来的list或者dict等基础数据类型
+
+    Returns:
+        根据json内容动态决定属性内容的实例对象
+    """
+
+    class CustomObject:
+        def get(self, name, default=None):
+            return getattr(self, name, default)
+
+    if js_obj is None:
+        return None
+    elif isinstance(js_obj, list):
+        result = [to_obj(x) for x in js_obj]
+    elif isinstance(js_obj, dict):
+        result = CustomObject()
+        for key in js_obj.keys():
+            setattr(result, key, to_obj(js_obj[key]))
+    else:
+        return js_obj
+    return result

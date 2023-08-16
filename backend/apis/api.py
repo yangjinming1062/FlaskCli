@@ -9,36 +9,39 @@ from datetime import datetime
 from functools import partial
 from functools import wraps
 from typing import Any
-from typing import Iterable
 from typing import Union
 
 from flask import Blueprint
 from flask import jsonify
 from flask import request
+from sqlalchemy import Column
 from sqlalchemy import case
 from sqlalchemy import func
 from sqlalchemy import insert
 from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy import update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import scoped_session
+from sqlalchemy.orm import sessionmaker
 
 from enums import *
-from models import ModelTemplate
-from models import OLTPEngine
+from models import *
 from utils import execute_sql
 from utils import logger
+
+session_factory = scoped_session(sessionmaker(bind=OLTPEngine))
 
 
 class ParamDefine:
     """
     API接口参数定义类
     """
-    __slots__ = ('type', 'comment', 'default', 'valid', 'message')
+    __slots__ = ('type', 'comment', 'default', 'valid', 'resp')
     type: Any
     comment: str
     default: Any
     valid: Any
-    message: str
+    resp: RespEnum
 
     def __init__(self, type_, comment='', **kwargs):
         """
@@ -47,7 +50,7 @@ class ParamDefine:
             type_: 数据类型
             comment: 注释
             valid: 参数校验（一个返回bool值的校验函数）
-            message: 参数不满足时的错误提示
+            resp: 参数不满足时的错误提示
         """
         self.type = type_
         self.comment = comment
@@ -61,14 +64,14 @@ class ParamDefine:
         pass
 
 
-def get_blueprint(name):
+def get_blueprint(path, name):
     """
     生成API的蓝图：方便统一调整
     """
-    tmp = name.split('.')
+    tmp = path.split('.')
     version = tmp[-2]
     _name = tmp[-1]
-    return Blueprint(_name, __name__, url_prefix=f'/api/{version}/{_name}')
+    return Blueprint(name, __name__, url_prefix=f'/api/{version}/{_name}')
 
 
 def response(base_response: RespEnum, data=None):
@@ -81,18 +84,39 @@ def response(base_response: RespEnum, data=None):
     Returns:
         Response
     """
-    status, resp = base_response.value
-    if data is not None:
-        resp = data
+    status, msg = base_response.value
+    if data is None:
+        resp = {
+            'code': base_response.name,
+            'message': msg
+        }
+    else:
+        if isinstance(data, (list, dict)):
+            resp = data
+        else:
+            resp = {
+                'code': base_response.name,
+                'message': msg,
+                'data': data,
+            }
     return jsonify(resp), status
 
 
-def api_wrapper(request_param: dict = None, response_param: dict = None):
+def api_wrapper(
+        request_header: dict = None,
+        request_param: dict = None,
+        response_param: dict = None,
+        response_header: dict = None,
+        permission: set = None
+):
     """
     装饰器：统一处理API响应异常以及必要参数的校验
     Args:
+        request_header: 请求头中的参数
         request_param: 当前接口包含的字段（key为字段名称，value为字段类型），如果参数为必填在在名称前添加*
         response_param: 当前接口的响应数据结构，用于生成接口文档
+        response_header: 响应头，用于生成接口文档
+        permission: 接口权限
 
     Returns:
         无异常则返回方法的返回值，异常返回Error
@@ -134,6 +158,12 @@ def api_wrapper(request_param: dict = None, response_param: dict = None):
         elif issubclass(define, ModelTemplate):
             # model定义
             return define(**value)
+        elif issubclass(define, Enum):
+            tmp = {x.name: x for x in list(define)}
+            if value in tmp:
+                return tmp[value]
+            else:
+                raise ValueError(f'{value} not a {define}')
         else:
             # 其他类型
             return define(value)
@@ -190,33 +220,51 @@ def api_wrapper(request_param: dict = None, response_param: dict = None):
                         result[key] = set_value(value.type, source[key][0])
                     else:
                         result[key] = set_value(value.type, source[key])
+                # 4. 如果提供了校验函数则校验数据取值
+                if hasattr(value, 'valid'):
+                    try:
+                        if isinstance(result[key], (list, dict)):
+                            assert all(map(value.valid, result[key]))
+                        else:
+                            assert value.valid(result[key])
+                    except:
+                        if hasattr(value, 'resp'):
+                            raise Exception(value.resp)
+                        else:
+                            raise Exception(RespEnum.ParamsRangeError)
             else:
                 # 3.1 没传参数则看看有没有默认值
                 if hasattr(value, 'default'):
                     result[key] = value.default
                     continue
-            # 4. 如果提供了校验函数则校验数据取值
-            if hasattr(value, 'valid'):
-                if isinstance(result[key], Iterable):
-                    if all(map(value.valid, result[key])):
-                        continue
-                else:
-                    if value.valid(result[key]):
-                        continue
-                # 4.1 校验通过就continue了，走到这说明校验没通过
-                raise Exception(RespEnum.ParamsRangeError)
         return result
 
-    def decorator(func):
-        func.__apispec__ = {'request': request_param, 'response': response_param}
+    def decorator(function):
+        function.__apispec__ = {
+            'request': request_param,
+            'response': response_param,
+            'request_header': request_header,
+            'response_header': response_header
+        }
 
-        @wraps(func)
+        @wraps(function)
         def wrapper(*args, **kwargs):
-            kwargs['oltp_session'] = Session(OLTPEngine)
+            kwargs['oltp_session'] = session_factory()
+            kwargs['olap_session'] = OLAPEngine
             try:
-                if request_param is None:
+                if request.uid:
+                    # 登录的token还有效，但是token内的uid已经不在来（几乎不存在，但有可能）
+                    user = execute_sql(select(User).where(User.id == request.uid), session=kwargs['oltp_session'])
+                    if not user:
+                        return response(RespEnum.Forbidden)
+                    if permission and user.role not in permission:
+                        return response(RespEnum.Forbidden)
+                else:
+                    user = None
+                kwargs['user'] = user
+                if request_param is None and request_header is None:
                     # 参数为空说明是不需要参数的接口
-                    return func(*args, **kwargs)
+                    return function(*args, **kwargs)
                 if request_param:
                     # 定义的请求参数要求
                     req_params = set_params(request_param, get_params(), request.method in ('GET', 'DELETE'))
@@ -224,8 +272,9 @@ def api_wrapper(request_param: dict = None, response_param: dict = None):
                     # 这种情况是参数定义为空字典，表示可以接收任意的请求参数
                     req_params = get_params()
                 kwargs.update(req_params)
-                kwargs['oltp_session'].begin()
-                return func(*args, **kwargs)
+                if request_header:
+                    kwargs.update(set_params(request_header, {k: v for k, v in request.headers.items()}, False))
+                return function(*args, **kwargs)
             except AssertionError as ex:
                 kwargs['oltp_session'].rollback()
                 logger.info(ex)
@@ -246,6 +295,7 @@ def api_wrapper(request_param: dict = None, response_param: dict = None):
                 else:
                     return response(RespEnum.Error)
             finally:
+                kwargs['oltp_session'].commit()
                 kwargs['oltp_session'].close()
 
         return wrapper
@@ -263,7 +313,8 @@ def orm_create(cls, params: dict):
     Returns:
         Response
     """
-    result, flag = execute_sql(insert(cls).values(**params))
+    _params = {k: v for k, v in params.items() if k in cls.get_columns()}
+    result, flag = execute_sql(insert(cls).values(**_params))
     if flag:
         return response(RespEnum.Created, result)
     else:
@@ -310,7 +361,8 @@ def orm_update(cls, resource_id: str, params: dict):
     """
     if not params:
         return response(RespEnum.ParamsMissed)
-    result, flag = execute_sql(update(cls).where(cls.id == resource_id).values(**params))
+    _params = {k: v for k, v in params.items() if k in cls.get_columns()}
+    result, flag = execute_sql(update(cls).where(cls.id == resource_id).values(**_params))
     if flag:
         return response(RespEnum.NoContent)
     else:
@@ -327,23 +379,23 @@ def orm_delete(cls, resource_id: Union[str, list, set]):
     Returns:
         Response
     """
-    with Session(cls.bind) as session:
-        try:
-            if isinstance(resource_id, (list, set)):
-                for instance in session.scalars(select(cls).where(cls.id.in_(resource_id))).all():
-                    session.delete(instance)
+    session = session_factory()
+    try:
+        if isinstance(resource_id, (list, set)):
+            for instance in session.scalars(select(cls).where(cls.id.in_(resource_id))).all():
+                session.delete(instance)
+            return response(RespEnum.NoContent)
+        else:
+            if instance := session.query(cls).get(resource_id):
+                session.delete(instance)  # 通过该方式可以级联删除子数据
                 return response(RespEnum.NoContent)
-            else:
-                if instance := session.query(cls).get(resource_id):
-                    session.delete(instance)  # 通过该方式可以级联删除子数据
-                    return response(RespEnum.NoContent)
-            return response(RespEnum.NotFound)
-        except Exception as ex:
-            session.rollback()
-            logger.exception(ex)
-            return response(RespEnum.BadRequest)
-        finally:
-            session.commit()
+        return response(RespEnum.NotFound)
+    except Exception as ex:
+        session.rollback()
+        logger.exception(ex)
+        return response(RespEnum.BadRequest)
+    finally:
+        session.commit()
 
 
 def orm_paginate(cls, params):
@@ -388,7 +440,7 @@ def orm_paginate(cls, params):
     return paginate_query(sql, params, False)
 
 
-def paginate_query(sql, params, scalar=False, format_func=None):
+def paginate_query(sql, params, scalar=False, format_func=None, session=None):
     """
     统一分分页查询操作
     Args:
@@ -396,29 +448,29 @@ def paginate_query(sql, params, scalar=False, format_func=None):
         params: 请求参数，对应接口的kwargs
         scalar:是否需要scalars
         format_func:直接返回查询后的数据，不进行响应，用于数据结构需要特殊处理的情况
+        session: 特殊OLAP等情况需要方法自己提供session
 
     Returns:
         接口响应
     """
     total_sql = select(func.count()).select_from(sql)
-    with Session(OLTPEngine) as session:
-        total = execute_sql(total_sql, many=False, scalar=True, session=session)
-        sql = sql.limit(params['size']).offset(params['page'] * params['size'])
-        for column in params.get('sort', []):
-            if column[1] in ('+', '-'):
-                direct = 'DESC' if column[1] == '-' else 'ASC'
-                column = column[1:]
-            else:
-                direct = 'ASC'
-            sql = sql.order_by(f'{column} {direct}')
-        result = {
-            'total': total,
-            'data': execute_sql(sql, many=True, scalar=scalar, session=session)
-        }
-        if format_func:
-            # 需要按照特定格式对数据进行修改的时候使用format_func
-            result['data'] = list(map(format_func, result['data']))
-        return response(RespEnum.OK, result)
+    total = execute_sql(total_sql, many=False, scalar=True, session=session)
+    sql = sql.limit(params['size']).offset(params['page'] * params['size'])
+    for column in params.get('sort', []):
+        if column[0] in ('+', '-'):
+            direct = 'DESC' if column[1] == '-' else 'ASC'
+            column = column[1:]
+        else:
+            direct = 'ASC'
+        sql = sql.order_by(text(f'{column} {direct}'))
+    result = {
+        'total': total,
+        'data': execute_sql(sql, many=True, scalar=scalar, session=session)
+    }
+    if format_func:
+        # 需要按照特定格式对数据进行修改的时候使用format_func
+        result['data'] = list(map(format_func, result['data']))
+    return response(RespEnum.OK, result)
 
 
 def safe_column(column, default='-', label=None):
@@ -432,4 +484,41 @@ def safe_column(column, default='-', label=None):
     Returns:
         case之后的select列
     """
-    return case({None: default}, value=column).label(label if label else column.name)
+    return case({None: default}, else_=column).label(label if label else column.name)
+
+
+def query_condition(sql, params: dict, column: Column, field_name=None, op_func=None, op_type=None):
+    """
+    添加查询参数
+    Args:
+        sql: SQL对象
+        params: 接口参数
+        column: 查询的列
+        field_name: 条件名称(默认为空时和查询列同名)
+        op_func: 操作函数(op_func优先于op_type)
+        op_type: 操作类型(op_func和op_type至少一个不为None)
+
+    Returns:
+        添加where条件后的SQL对象
+    """
+    if (param := params.get(field_name or column.key)) is not None:
+        if op_func:
+            return sql.where(op_func(param))
+        else:
+            assert op_type is not None, 'op_type 和 op_func 至少一个不为None'
+            if op_type == 'like':
+                return sql.where(column.like(f'%{param}%'))
+            elif op_type == 'in':
+                return sql.where(column.in_(param))
+            elif op_type == '==':
+                return sql.where(column == param)
+            elif op_type == '>=':
+                return sql.where(column >= param)
+            elif op_type == '>':
+                return sql.where(column > param)
+            elif op_type == '<=':
+                return sql.where(column <= param)
+            elif op_type == '<':
+                return sql.where(column < param)
+    else:
+        return sql

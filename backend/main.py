@@ -1,9 +1,15 @@
-import os
+"""
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+File Name   : app.py
+Author      : jinming.yang
+Description : 程序的入口位置，通过该文件启动app程序
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+"""
 from time import time
+from uuid import uuid4
 
 from flask import Flask
 from flask import Response
-from flask import request
 from flask_cors import CORS  # 解决前后端联调的跨域问题
 from flask_jwt_extended import JWTManager
 from flask_jwt_extended import get_jwt_identity
@@ -12,30 +18,23 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import MethodNotAllowed
 from werkzeug.exceptions import NotFound
 
-from apis import Blueprints
-from apis import SKIP_AUTH_REGEX
-from enums import RespEnum
+from apis import *
+from enums import *
 from models import ApiRequestLogs
-from models import User
-from utils import Constants
 from utils import ExtensionJSONEncoder
-from utils import Kafka
 from utils import logger
-from apis.api import response
 
 jwt = JWTManager()
 cors = CORS()
-kafka = Kafka()
 
 
 def create_app():
     flask_app = Flask(__name__)
     flask_app.json_encoder = ExtensionJSONEncoder
-    # 通过获取环境变量中的值来完善config
     flask_app.config.update({
         'JWT_SECRET_KEY': os.environ.get('JWT_SECRET_KEY', 'flaskcli'),
-        'JWT_ACCESS_TOKEN_EXPIRES': int(os.environ.get('JWT_ACCESS_TOKEN_EXPIRES', 86400)),
-        'JWT_REFRESH_TOKEN_EXPIRES': int(os.environ.get('JWT_REFRESH_TOKEN_EXPIRES', 864000)),
+        'JWT_ACCESS_TOKEN_EXPIRES': int(os.environ.get('JWT_ACCESS_TOKEN_EXPIRES', 86400 * 7)),
+        'JWT_REFRESH_TOKEN_EXPIRES': int(os.environ.get('JWT_REFRESH_TOKEN_EXPIRES', 86400 * 30)),
         'JWT_BLACKLIST_ENABLED': False,
         'JWT_COOKIE_CSRF_PROTECT': True,
         'JSON_AS_ASCII': False,
@@ -50,29 +49,36 @@ def create_app():
 
 
 def register_handler(flask_app):
+    """
+    注册生命周期函数以及其他错误捕捉函数
+    Args:
+        flask_app: flask程序
+
+    Returns:
+        None
+    """
+
     @flask_app.before_request
     def authentication():
         """
-        接口进行响应前的钩子函数：处理鉴权、访问时间记录等逻辑
-
+        接口进行响应前的钩子函数：进行统一的接口鉴权
         Returns:
             None
         """
-        request.start_time = time()
+        request.started_at = time()
         # 1.无需鉴权的接口直接返回
         if SKIP_AUTH_REGEX.match(request.path):
+            request.uid = None
             return None
         # 2.对接口进行鉴权
         try:
             _ = verify_jwt_in_request()
+            if (uid := get_jwt_identity()) is None:
+                return response(RespEnum.Forbidden)
+            request.uid = uid
         except Exception as ex:
             logger.error(ex)
             return response(RespEnum.UnAuthorized)
-        if (uid := get_jwt_identity()) is None:  # 获取token中记录的uid信息
-            return response(RespEnum.Forbidden)
-        # 登录的token还有效，但是token内的uid已经不在来（几乎不存在，但有可能）
-        if not User.read(uid):
-            return response(RespEnum.Forbidden)
 
     @flask_app.after_request
     def log_record(resp: Response):
@@ -84,24 +90,32 @@ def register_handler(flask_app):
         Returns:
             None
         """
-        log = ApiRequestLogs()
-        uri_list = request.path.split('/')  # 按照接口的构成反向拆出版本和蓝图信息
         try:
             _ = verify_jwt_in_request()
-            log.user_id = get_jwt_identity()
-        except:
-            log.user_id = 'public'
-        log.create_time = int(time())
-        log.method = request.method
-        log.version = uri_list[1] if len(uri_list) > 1 else 'unknown'
-        log.blueprint = request.blueprint
-        log.uri = request.path
-        log.status_code = resp.status_code
-        log.duration = int((time() - request.start_time) * 1000)
-        log.source_ip = request.remote_addr
-        log.destination_ip = request.server[0]
-        kafka.produce(Constants.Topic_ReqLogs, log.json())  # WARNING！！！ 频率低就直接flush，频率高避免性能影响可以单独开一个线程定时flush
-        return resp
+            sql = insert(ApiRequestLogs).values({
+                'id': str(uuid4()),
+                'user_id': get_jwt_identity(),
+                'created_at': datetime.fromtimestamp(int(time())),
+                'method': request.method,
+                'blueprint': request.blueprint,
+                'uri': request.path,
+                'status': resp.status_code,
+                'duration': int((time() - request.started_at) * 1000),
+                'source_ip': request.remote_addr,
+            })
+            execute_sql(sql)
+            # log = ApiRequestLogs()
+            # log.user_id = get_jwt_identity()
+            # log.created_at = int(time())
+            # log.method = request.method
+            # log.blueprint = request.blueprint
+            # log.uri = request.path
+            # log.status = resp.status_code
+            # log.duration = int((time() - request.started_at) * 1000)
+            # log.source_ip = request.remote_addr
+            # kafka.produce(Constants.Topic_ReqLogs, log.json())  # WARNING！！！ 频率低就直接flush，频率高避免性能影响可以单独开一个线程定时flush
+        finally:
+            return resp
 
     @flask_app.errorhandler(AssertionError)
     def handle_assertion_error(e: AssertionError):
@@ -120,12 +134,12 @@ def register_handler(flask_app):
 
     @flask_app.errorhandler(SQLAlchemyError)
     def handle_sqlalchemy_error(e: SQLAlchemyError):
-        logger.exception(e)
+        logger.error(e)
         return response(RespEnum.DBError)
 
     @flask_app.errorhandler(Exception)
     def handle_exception(e: Exception):
-        logger.exception(e)
+        logger.error(e)
         return response(RespEnum.Error)
 
 

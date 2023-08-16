@@ -10,6 +10,7 @@ Model分为两类，
 """
 from datetime import datetime
 from secrets import token_urlsafe
+from typing import Optional
 from uuid import uuid4
 
 from clickhouse_driver import Client
@@ -25,6 +26,7 @@ from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm.collections import InstrumentedList
 from sqlalchemy.orm.properties import ColumnProperty
 from typing_extensions import Annotated
+
 from config import DATABASE_OLAP_URI
 from config import DATABASE_OLTP_URI
 
@@ -32,9 +34,9 @@ OLAPEngine = Client.from_url(DATABASE_OLAP_URI)
 OLTPEngine = create_engine(DATABASE_OLTP_URI, pool_size=150, pool_recycle=60)
 
 str_id = Annotated[str, mapped_column(String(32))]
-str_s = Annotated[str, mapped_column(String(24))]
-str_m = Annotated[str, mapped_column(String(32))]
-str_l = Annotated[str, mapped_column(String(64))]
+str_s = Annotated[str, mapped_column(String(32))]
+str_m = Annotated[str, mapped_column(String(64))]
+str_l = Annotated[str, mapped_column(String(128))]
 
 
 class ModelTemplate:
@@ -113,4 +115,4 @@ class TimeColumns:
     __abstract__ = True
 
     created_at: Mapped[datetime] = mapped_column(default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(onupdate=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(onupdate=func.now(), nullable=True)
