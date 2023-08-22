@@ -13,8 +13,8 @@ class LanguageEnum(Enum):
     """
     语言枚举
     """
-    ZH = '中文'
-    EN = '英文'
+    ZH = 'zh-CN'
+    EN = 'en-US'
 
 
 class MethodEnum(Enum):

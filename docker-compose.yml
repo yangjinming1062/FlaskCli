@@ -1,22 +1,22 @@
 version: '3.1'
 services:
-  clickhouse:
+  olap:
     restart: always
     image: bitnami/clickhouse:23.4.2
     env_file: ./docker.env
     volumes:
-      - ./persistence/clickhouse:/bitnami/clickhouse
+      - ./persistence/olap:/bitnami/clickhouse
       - ./migrations/olap:/docker-entrypoint-initdb.d
     ports:
       - "8123:8123"
       - "9000:9000"
 
-  postgres:
+  oltp:
     restart: always
     image: bitnami/postgresql:14.8.0
     env_file: docker.env
     volumes:
-      - ./persistence/postgresql:/bitnami/postgresql
+      - ./persistence/oltp:/bitnami/postgresql
     ports:
       - "5432:5432"
 

@@ -161,9 +161,11 @@ def api_wrapper(
         elif issubclass(define, Enum):
             tmp = {x.name: x for x in list(define)}
             if value in tmp:
+                # 按照枚举的Key去匹配
                 return tmp[value]
             else:
-                raise ValueError(f'{value} not a {define}')
+                # Key匹配不上则认为传递的是枚举Value
+                return define(value)
         else:
             # 其他类型
             return define(value)
