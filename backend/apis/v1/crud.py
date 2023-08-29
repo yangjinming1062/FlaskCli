@@ -49,8 +49,8 @@ def post_target(target, **kwargs):
 @bp.route('/<target>/search', methods=['POST'])
 @api_wrapper(
     request_param={
-        '*page': ParamDefine(int, '页码', valid=lambda x: x > 0),
-        '*size': ParamDefine(int, '数量', valid=lambda x: 0 < x <= 100),
+        '*page': ParamDefine(int, '页码', default=1),
+        '*size': ParamDefine(int, '数量', default=10),
         'sort': ParamDefine(List[str], '排序'),
         'field': ParamDefine(List[str], '字段'),
         'query': ParamDefine(Dict[str, Any]),

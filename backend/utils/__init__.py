@@ -22,6 +22,14 @@ from .functions import execute_sql
 # 日志记录
 if not os.path.exists('./logs'):
     os.mkdir('./logs')
-logger.add("./logs/DEBUG.log", retention="1 days", level="DEBUG")
-logger.add("./logs/INFO.log", retention="1 days", level="INFO")
+logger.add('./logs/DEBUG.log',
+           filter=lambda x: x['level'].name in ['TRACE', 'DEBUG', 'INFO'],
+           retention='1 days',
+           level='TRACE',
+           )
+logger.add("./logs/INFO.log",
+           filter=lambda x: x['level'].name in ['WARNING', 'ERROR', 'CRITICAL'],
+           retention='1 days',
+           level='WARNING',
+           )
 logger.add(sys.stdout, colorize=True, format="{time:YYYY-MM-DD HH:mm:ss}|<level>{message}</level>")

@@ -5,6 +5,7 @@ Author      : jinming.yang
 Description : 基础方法的定义实现
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
+import uuid
 from functools import wraps
 from typing import Union
 
@@ -87,11 +88,13 @@ def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, se
             else:
                 return 'SQL执行失败', False
     except IntegrityError as ex:
-        session.rollback()
+        if tp_flag:
+            session.rollback()
         logger.exception(ex)
         return ex.orig.args[1], False
     except Exception as exx:
-        session.rollback()
+        if tp_flag:
+            session.rollback()
         logger.exception(exx)
         return str(exx), False
     finally:
@@ -122,6 +125,22 @@ def exceptions(default=None):
         return wrapper
 
     return decorator
+
+
+def generate_key(source: str = None):
+    """
+    根据特定的输入输出id
+    Args:
+        source:
+
+    Returns:
+
+    """
+    if source:
+        tmp = uuid.uuid5(uuid.NAMESPACE_DNS, source)
+    else:
+        tmp = uuid.uuid4()
+    return tmp.hex[-12:]
 
 
 @exceptions()

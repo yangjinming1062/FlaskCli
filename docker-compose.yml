@@ -26,8 +26,6 @@ services:
     env_file: ./docker.env
     ports:
       - "2181:2181"
-    volumes:
-      - ./persistence/zookeeper:/bitnami
 
   kafka:
     restart: always
@@ -35,8 +33,8 @@ services:
     env_file: ./docker.env
     ports:
       - "9092:9092"
-    volumes:
-      - ./persistence/kafka:/bitnami
+#    volumes:
+#      - ./persistence/kafka:/bitnami/kafka
     depends_on:
       - zookeeper
 
@@ -59,7 +57,7 @@ services:
     ports:
       - "5000:5000"
     depends_on:
-      - clickhouse
-      - postgres
+      - olap
+      - oltp
       - redis
     command: "/bin/bash -c 'source ./initDB.sh && gunicorn main:app -c ./run.py'"

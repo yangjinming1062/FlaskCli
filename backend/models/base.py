@@ -9,7 +9,6 @@ Model分为两类，
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
 from datetime import datetime
-from secrets import token_urlsafe
 from typing import Optional
 from uuid import uuid4
 
@@ -33,7 +32,7 @@ from config import DATABASE_OLTP_URI
 OLAPEngine = Client.from_url(DATABASE_OLAP_URI)
 OLTPEngine = create_engine(DATABASE_OLTP_URI, pool_size=150, pool_recycle=60)
 
-str_id = Annotated[str, mapped_column(String(32))]
+str_id = Annotated[str, mapped_column(String(16))]
 str_s = Annotated[str, mapped_column(String(32))]
 str_m = Annotated[str, mapped_column(String(64))]
 str_l = Annotated[str, mapped_column(String(128))]
@@ -96,7 +95,7 @@ class OLTPModelBase(DeclarativeBase, ModelTemplate):
     """
     __abstract__ = True
 
-    id: Mapped[str_id] = mapped_column(primary_key=True, default=lambda: token_urlsafe(24), comment='主键')
+    id: Mapped[str_id] = mapped_column(primary_key=True, default=lambda: uuid4().hex[-12:], comment='主键')
 
 
 class OLAPModelBase(DeclarativeBase, ModelTemplate):

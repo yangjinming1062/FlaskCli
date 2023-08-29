@@ -1,6 +1,5 @@
 from io import BytesIO
 
-from flask import make_response
 from flask_jwt_extended import create_access_token
 from flask_jwt_extended import create_refresh_token
 from flask_jwt_extended import get_jwt_identity

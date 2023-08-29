@@ -5,6 +5,7 @@ Author      : jinming.yang
 Description : API接口用到的工具方法实现
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
+import json
 from datetime import datetime
 from functools import partial
 from functools import wraps
@@ -12,7 +13,7 @@ from typing import Any
 from typing import Union
 
 from flask import Blueprint
-from flask import jsonify
+from flask import make_response
 from flask import request
 from sqlalchemy import Column
 from sqlalchemy import case
@@ -26,10 +27,11 @@ from sqlalchemy.orm import sessionmaker
 
 from enums import *
 from models import *
+from utils import ExtensionJSONEncoder
 from utils import execute_sql
 from utils import logger
 
-session_factory = scoped_session(sessionmaker(bind=OLTPEngine))
+oltp_session_factory = scoped_session(sessionmaker(bind=OLTPEngine))
 
 
 class ParamDefine:
@@ -99,7 +101,9 @@ def response(base_response: RespEnum, data=None):
                 'message': msg,
                 'data': data,
             }
-    return jsonify(resp), status
+    resp = make_response(json.dumps(resp, cls=ExtensionJSONEncoder), status)
+    resp.headers['Content-Type'] = 'application/json'
+    return resp
 
 
 def api_wrapper(
@@ -251,7 +255,7 @@ def api_wrapper(
 
         @wraps(function)
         def wrapper(*args, **kwargs):
-            kwargs['oltp_session'] = session_factory()
+            kwargs['oltp_session'] = oltp_session_factory()
             kwargs['olap_session'] = OLAPEngine
             try:
                 if request.uid:
@@ -279,38 +283,38 @@ def api_wrapper(
                 return function(*args, **kwargs)
             except AssertionError as ex:
                 kwargs['oltp_session'].rollback()
-                logger.info(ex)
+                logger.debug(ex)
                 return response(RespEnum.InvalidInput)
             except KeyError as ex:
                 kwargs['oltp_session'].rollback()
-                logger.info(ex)
+                logger.debug(ex)
                 return response(RespEnum.ParamsMissed)
             except ValueError as ex:
                 kwargs['oltp_session'].rollback()
-                logger.info(ex)
+                logger.debug(ex)
                 return response(RespEnum.ParamsValueError)
             except Exception as ex:
                 kwargs['oltp_session'].rollback()
-                logger.info(ex)
+                logger.exception(ex)
                 if isinstance(ex.args[0], RespEnum):
                     return response(ex.args[0])
                 else:
                     return response(RespEnum.Error)
             finally:
                 kwargs['oltp_session'].commit()
-                kwargs['oltp_session'].close()
 
         return wrapper
 
     return decorator
 
 
-def orm_create(cls, params: dict):
+def orm_create(cls, params: dict, repeat_resp=RespEnum.KeyRepeat):
     """
     创建数据实例
     Args:
         cls: ORM类定义
         params: 参数
+        repeat_resp: 新增重复时的响应
 
     Returns:
         Response
@@ -320,10 +324,10 @@ def orm_create(cls, params: dict):
     if flag:
         return response(RespEnum.Created, result)
     else:
-        if result.find('Duplicate') > 0:
-            return response(RespEnum.KeyRepeat, result)
+        if result.lower().find('duplicate') > 0:
+            return response(repeat_resp)
         else:
-            return response(RespEnum.InvalidInput, result)
+            return response(RespEnum.InvalidInput)
 
 
 def orm_read(cls, resource_id: str, fields: list = None):
@@ -350,13 +354,14 @@ def orm_read(cls, resource_id: str, fields: list = None):
         return response(RespEnum.NotFound)
 
 
-def orm_update(cls, resource_id: str, params: dict):
+def orm_update(cls, resource_id: str, params: dict, error_resp=RespEnum.InvalidInput):
     """
     ORM数据的更新
     Args:
         cls: ORM类定义
         resource_id: 资源ID
         params: 更新数据
+        error_resp: 更新失败时的响应状态
 
     Returns:
         Response
@@ -366,9 +371,12 @@ def orm_update(cls, resource_id: str, params: dict):
     _params = {k: v for k, v in params.items() if k in cls.get_columns()}
     result, flag = execute_sql(update(cls).where(cls.id == resource_id).values(**_params))
     if flag:
-        return response(RespEnum.NoContent)
+        if result:
+            return response(RespEnum.NoContent)
+        else:
+            return response(RespEnum.NotFound)
     else:
-        return response(RespEnum.InvalidInput)
+        return response(error_resp)
 
 
 def orm_delete(cls, resource_id: Union[str, list, set]):
@@ -381,7 +389,7 @@ def orm_delete(cls, resource_id: Union[str, list, set]):
     Returns:
         Response
     """
-    session = session_factory()
+    session = oltp_session_factory()
     try:
         if isinstance(resource_id, (list, set)):
             for instance in session.scalars(select(cls).where(cls.id.in_(resource_id))).all():
@@ -457,10 +465,16 @@ def paginate_query(sql, params, scalar=False, format_func=None, session=None):
     """
     total_sql = select(func.count()).select_from(sql)
     total = execute_sql(total_sql, many=False, scalar=True, session=session)
-    sql = sql.limit(params['size']).offset(params['page'] * params['size'])
+    if params['size'] > 100 or params['size'] < 1:
+        return response(RespEnum.ParamsRangeError)
+    if params['page'] < 1:
+        return response(RespEnum.ParamsRangeError)
+    sql = sql.limit(params['size']).offset((params['page'] - 1) * params['size'])
     for column in params.get('sort', []):
+        if column == '':
+            continue
         if column[0] in ('+', '-'):
-            direct = 'DESC' if column[1] == '-' else 'ASC'
+            direct = 'DESC' if column[0] == '-' else 'ASC'
             column = column[1:]
         else:
             direct = 'ASC'
@@ -503,7 +517,7 @@ def query_condition(sql, params: dict, column: Column, field_name=None, op_func=
     Returns:
         添加where条件后的SQL对象
     """
-    if (param := params.get(field_name or column.key)) is not None:
+    if (param := params.get(field_name or column.key)) is not None or op_type == 'datetime':
         if op_func:
             return sql.where(op_func(param))
         else:
@@ -512,15 +526,15 @@ def query_condition(sql, params: dict, column: Column, field_name=None, op_func=
                 return sql.where(column.like(f'%{param}%'))
             elif op_type == 'in':
                 return sql.where(column.in_(param))
-            elif op_type == '==':
-                return sql.where(column == param)
-            elif op_type == '>=':
-                return sql.where(column >= param)
-            elif op_type == '>':
-                return sql.where(column > param)
-            elif op_type == '<=':
-                return sql.where(column <= param)
-            elif op_type == '<':
-                return sql.where(column < param)
+            elif op_type == 'notin':
+                return sql.where(column.notin_(param))
+            elif op_type == 'datetime':
+                if start := params.get(f'{field_name or column.key}_start'):
+                    sql = sql.where(column >= start)
+                if end := params.get(f'{field_name or column.key}_end'):
+                    sql = sql.where(column <= end)
+                return sql
+            else:
+                return sql.where(eval(f'column {op_type} param'))
     else:
         return sql

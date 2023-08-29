@@ -11,7 +11,7 @@ bp = get_blueprint(__name__, '系统管理')
 @bp.route('/users', methods=['GET'])
 @api_wrapper(
     request_param={
-        '*page': ParamDefine(int, '页码', default=0),
+        '*page': ParamDefine(int, '页码', default=1),
         '*size': ParamDefine(int, '每页数量', default=10),
         'sort': ParamDefine(List[str], '排序字段'),
         'keyword': ParamDefine(str, '账号/用户名'),
@@ -35,23 +35,22 @@ def get_users(**kwargs):
     """
     用户列表
     """
-
-    def format_func(x):
-        return {
-            'id': x.id,
-            'account': x.account,
-            'role': x.role,
-            'username': x.username,
-            'phone': x.phone,
-            'email': x.email
-        }
-
-    sql = select(User).where(User.valid == true())
+    sql = (
+        select(
+            User.id,
+            User.account,
+            User.role,
+            User.username,
+            User.phone,
+            User.email,
+        )
+        .where(User.valid == true())
+    )
     if keyword := kwargs.get('keyword'):
         sql = sql.where(User.account.like(f'%{keyword}%') | User.username.like(f'%{keyword}%'))
     if not kwargs.get('sort'):
         kwargs['sort'] = ['-updated_at']
-    return paginate_query(sql, kwargs, True, format_func)
+    return paginate_query(sql, kwargs, False)
 
 
 @bp.route('/users', methods=['POST'])
@@ -164,14 +163,16 @@ def reset_password(uid, **kwargs):
 @bp.route('/logs', methods=['GET'])
 @api_wrapper(
     request_param={
-        '*page': ParamDefine(int, '页码', default=0),
+        '*page': ParamDefine(int, '页码', default=1),
         '*size': ParamDefine(int, '每页数量', default=10),
         'sort': ParamDefine(List[str], '排序字段'),
         'ip': ParamDefine(str, 'IP'),
         'account': ParamDefine(str, '账号'),
         'username': ParamDefine(str, '用户名'),
         'method': ParamDefine(List[MethodEnum], '请求类型'),
-        'status': ParamDefine(int, '状态码'),
+        'status': ParamDefine(List[int], '状态码'),
+        'created_at_start': ParamDefine(datetime),
+        'created_at_end': ParamDefine(datetime),
     },
     response_param={
         RespEnum.OK: ParamDefine({
@@ -234,7 +235,8 @@ def get_logs(**kwargs):
     if ip := kwargs.get('ip'):
         sql = sql.where(func.IPv4NumToString(ApiRequestLogs.source_ip).like(f'%{ip}'))
     sql = query_condition(sql, kwargs, ApiRequestLogs.method, op_type='in')
-    sql = query_condition(sql, kwargs, ApiRequestLogs.status, op_type='==')
+    sql = query_condition(sql, kwargs, ApiRequestLogs.status, op_type='in')
+    sql = query_condition(sql, kwargs, ApiRequestLogs.created_at, op_type='datetime')
     if not kwargs.get('sort'):
         kwargs['sort'] = ['-created_at']
     return paginate_query(sql, kwargs, False, format_func, session=kwargs['olap_session'])

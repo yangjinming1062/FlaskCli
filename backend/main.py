@@ -77,7 +77,7 @@ def register_handler(flask_app):
                 return response(RespEnum.Forbidden)
             request.uid = uid
         except Exception as ex:
-            logger.error(ex)
+            logger.exception(ex)
             return response(RespEnum.UnAuthorized)
 
     @flask_app.after_request
@@ -119,27 +119,27 @@ def register_handler(flask_app):
 
     @flask_app.errorhandler(AssertionError)
     def handle_assertion_error(e: AssertionError):
-        logger.error(e)
+        logger.exception(e)
         return response(RespEnum.IllegalParams)
 
     @flask_app.errorhandler(NotFound)
     def handle_path_error(_):
-        logger.info(f'未定义的地址：{request.base_url}')
+        logger.debug(f'未定义的地址：{request.base_url}')
         return response(RespEnum.UriNotFound)
 
     @flask_app.errorhandler(MethodNotAllowed)
     def handle_method_error(_):
-        logger.info(f'未定义的地址：{request.base_url}，方法：{request.method}')
+        logger.debug(f'未定义的地址：{request.base_url}，方法：{request.method}')
         return response(RespEnum.MethodNotFound)
 
     @flask_app.errorhandler(SQLAlchemyError)
     def handle_sqlalchemy_error(e: SQLAlchemyError):
-        logger.error(e)
+        logger.exception(e)
         return response(RespEnum.DBError)
 
     @flask_app.errorhandler(Exception)
     def handle_exception(e: Exception):
-        logger.error(e)
+        logger.exception(e)
         return response(RespEnum.Error)
 
 
