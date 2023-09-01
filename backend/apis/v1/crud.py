@@ -8,8 +8,7 @@ Description : 泛化CRUD接口
 from typing import Dict
 from typing import List
 
-from apis.api import *
-from models import *
+from ..api import *
 
 bp = get_blueprint(__name__, '泛化CRUD')
 # 可以进行泛化操作的model及可以其包含的列
@@ -24,11 +23,11 @@ def target_verify_wrapper(function):
     @wraps(function)
     def wrapper(*args, **kwargs):
         if 'target' not in kwargs:
-            return response(RespEnum.NotFound)
+            raise APIException(RespEnum.NotFound)
         if kwargs['target'] in LEGAL_MODELS:
             return function(*args, **kwargs)
         else:
-            return response(RespEnum.ParamsRangeError, LEGAL_MODELS)
+            raise APIException(RespEnum.ParamsRangeError)
 
     return wrapper
 
@@ -55,14 +54,13 @@ def post_target(target, **kwargs):
         'field': ParamDefine(List[str], '字段'),
         'query': ParamDefine(Dict[str, Any]),
     },
-    response_param={}
 )
 @target_verify_wrapper
 def search_target_list(target, **kwargs):
     """
     泛化资源列表
     """
-    return response(RespEnum.OK, orm_paginate(OLTPModelsDict[target], kwargs))
+    return orm_paginate(OLTPModelsDict[target], kwargs)
 
 
 @bp.route('/<target>/<target_id>', methods=['GET'])
@@ -85,7 +83,6 @@ def get_target(target, target_id, **kwargs):
 @bp.route('/<target>/<target_id>', methods=['PATCH'])
 @api_wrapper(
     request_param={},
-    response_param={RespEnum.NoContent: None}
 )
 @target_verify_wrapper
 def patch_target(target, target_id, **kwargs):
@@ -98,7 +95,6 @@ def patch_target(target, target_id, **kwargs):
 @bp.route('/<target>', methods=['DELETE'])
 @api_wrapper(
     request_param={'*id': ParamDefine(List[str], 'ID')},
-    response_param={RespEnum.NoContent: None},
 )
 @target_verify_wrapper
 def delete_target(target, **kwargs):

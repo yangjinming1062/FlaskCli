@@ -3,7 +3,7 @@ from typing import List
 from sqlalchemy import true
 from sqlalchemy.orm import Session
 
-from apis.api import *
+from ..api import *
 
 bp = get_blueprint(__name__, '系统管理')
 
@@ -65,6 +65,9 @@ def get_users(**kwargs):
     response_param={
         RespEnum.Created: ParamDefine(str, '用户ID'),
     },
+    response_header={
+        'Content-Type': 'text/plain',
+    },
     permission={RoleEnum.Admin}
 )
 def post_user(**kwargs):
@@ -83,9 +86,6 @@ def post_user(**kwargs):
         'phone': ParamDefine(str, '手机号', valid=User.valid_phone, resp=RespEnum.InvalidPhone),
         'email': ParamDefine(str, '邮箱', valid=User.valid_email, resp=RespEnum.InvalidEmail),
     },
-    response_param={
-        RespEnum.NoContent: None,
-    },
     permission={RoleEnum.Admin}
 )
 def patch_user(uid, **kwargs):
@@ -100,9 +100,6 @@ def patch_user(uid, **kwargs):
     request_param={
         '*id': ParamDefine(List[str], '用户ID'),
     },
-    response_param={
-        RespEnum.NoContent: None,
-    },
     permission={RoleEnum.Admin}
 )
 def delete_user(**kwargs):
@@ -116,7 +113,6 @@ def delete_user(**kwargs):
             user.valid = False
             user.credential.clear()
             session.flush()
-    return response(RespEnum.NoContent)
 
 
 @bp.route('/users/password', methods=['PUT'])
@@ -125,9 +121,6 @@ def delete_user(**kwargs):
         '*old': ParamDefine(str, '旧密码'),
         '*new': ParamDefine(str, '新密码', valid=User.valid_password, resp=RespEnum.InvalidPassword),
     },
-    response_param={
-        RespEnum.NoContent: None,
-    },
 )
 def put_password(**kwargs):
     """
@@ -135,18 +128,15 @@ def put_password(**kwargs):
     """
     user = kwargs['user']
     if not user.check_password(kwargs['old']):
-        return response(RespEnum.WrongPassword)
+        raise APIException(RespEnum.WrongPassword)
     user.password = User.generate_hash(kwargs['new'])
-    return response(RespEnum.NoContent)
+    raise APIException(RespEnum.NoContent)
 
 
 @bp.route('/users/<uid>/password', methods=['PUT'])
 @api_wrapper(
     request_param={
         '*password': ParamDefine(str, '密码', valid=User.valid_password, resp=RespEnum.InvalidPassword),
-    },
-    response_param={
-        RespEnum.NoContent: None,
     },
     permission={RoleEnum.Admin}
 )
@@ -157,7 +147,6 @@ def reset_password(uid, **kwargs):
     session: Session = kwargs['oltp_session']
     user = session.get(User, uid)
     user.password = User.generate_hash(kwargs['password'])
-    return response(RespEnum.NoContent)
 
 
 @bp.route('/logs', methods=['GET'])

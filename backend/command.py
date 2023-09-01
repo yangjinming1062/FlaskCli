@@ -12,10 +12,12 @@ Options:
 from docopt import docopt
 from sqlalchemy.orm import Session
 
+from enums import RoleEnum
 from models import OLTPEngine
 from models import User
 from utils import Kafka
 from utils import exceptions
+from utils import generate_key
 
 
 @exceptions()
@@ -26,10 +28,21 @@ def init_user(account, username, password):
 
     """
     with Session(OLTPEngine) as session:
-        user = session.query(User).where(User.account == account).first()
-        if not user:
-            session.add(User(username=username, account=account, password=password))
-            session.commit()
+        uid = generate_key(account)  # 保证多环境管理员的id一致
+        if user := session.get(User, uid):
+            user.password = User.generate_hash(password)
+        else:
+            user = User()
+            user.id = uid
+            user.account = account
+            user.username = username
+            user.password = User.generate_hash(password)
+            user.role = RoleEnum.Admin
+            user.phone = '-'
+            user.email = '-'
+            session.add(user)
+        session.commit()
+        print('Success!')
 
 
 def init_database():

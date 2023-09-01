@@ -14,21 +14,21 @@ _HOST = env('HOST', '127.0.0.1')
 # OLTP连接配置
 _T_HOST = env('OLTP_HOST', _HOST)
 _T_PORT = int(env('OLTP_PORT', 5432))
-_T_USER = env('POSTGRESQL_USERNAME', 'postgres')
-_T_PWD = env('POSTGRESQL_PASSWORD')
-_T_DB = env('POSTGRESQL_DATABASE')
+_T_USER = env('POSTGRESQL_USERNAME', 'flaskcli')
+_T_PWD = env('POSTGRESQL_PASSWORD', 'IDoNotKnow')
+_T_DB = env('POSTGRESQL_DATABASE', 'flaskcli')
 DATABASE_OLTP_URI = f'postgresql://{_T_USER}:{_T_PWD}@{_T_HOST}:{_T_PORT}/{_T_DB}'
 # OLAP连接配置
 _A_HOST = env('OLAP_HOST', _HOST)
-_A_PORT = int(env('OLTP_PORT', 9000))
+_A_PORT = int(env('OLAP_PORT', 9000))
 _A_USER = env('CLICKHOUSE_ADMIN_USER', 'default')
-_A_PWD = env('CLICKHOUSE_ADMIN_PASSWORD')
-_A_DB = env('CLICKHOUSE_DATABASE')
+_A_PWD = env('CLICKHOUSE_ADMIN_PASSWORD', 'IDoNotKnow')
+_A_DB = env('CLICKHOUSE_DATABASE', 'flaskcli')
 DATABASE_OLAP_URI = f'clickhouse://{_A_USER}:{_A_PWD}@{_A_HOST}:{_A_PORT}/{_A_DB}'
 # Redis连接配置
 REDIS_HOST = env('REDIS_HOST', _HOST)
 REDIS_PORT = int(env('REDIS_PORT', 6379))
-REDIS_PWD = env('REDIS_PASSWORD')
+REDIS_PWD = env('REDIS_PASSWORD', 'IDoNotKnow')
 # Kafka连接配置
 _K_HOST = env('KAFKA_HOST', _HOST)
 _K_PORT = int(env('KAFKA_PORT', 9092))

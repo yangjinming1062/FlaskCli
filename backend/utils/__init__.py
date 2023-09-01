@@ -18,6 +18,7 @@ from .classes import Singleton
 from .constants import Constants
 from .functions import exceptions
 from .functions import execute_sql
+from .functions import generate_key
 
 # 日志记录
 if not os.path.exists('./logs'):

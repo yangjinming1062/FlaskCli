@@ -176,7 +176,7 @@ def _from_app(app, info):
         if req_header := endpoint_func.__apispec__['request_header']:
             operation.parameters.extend(_get_parameters(req_header, 'header'))
         # 3. 生成请求参数
-        if req_param := endpoint_func.__apispec__['request']:
+        if req_param := endpoint_func.__apispec__['request_param']:
             # 3.1 生成params参数
             if method in _PARAMS_METHOD:
                 operation.parameters.extend(_get_parameters(req_param))
@@ -184,14 +184,13 @@ def _from_app(app, info):
             else:
                 operation.requestBody = OpenApiRequestBody(_get_content(req_param, req_header))
         # 4.生成响应参数
-        for resp, data in endpoint_func.__apispec__['response'].items():
-            code, msg = resp.value
-            body = {
-                'code': resp.name,
-                'message': msg
-            }
-            content = _get_content(data, endpoint_func.__apispec__['response_header'])
-            operation.responses[str(code)] = OpenApiResponse(body, content=content)
+        if resp_param := endpoint_func.__apispec__['response_param']:
+            for resp, data in resp_param.items():
+                code, msg = resp.value
+                content = _get_content(data, endpoint_func.__apispec__['response_header'])
+                operation.responses[str(code)] = OpenApiResponse(msg, content=content)
+        else:
+            operation.responses[str(204)] = OpenApiResponse('无响应数据')
         return operation
 
     # ***从这开始from_app的代码***

@@ -5,9 +5,9 @@ from flask_jwt_extended import create_refresh_token
 from flask_jwt_extended import get_jwt_identity
 from flask_jwt_extended import jwt_required
 
-from apis.api import *
 from utils import ImageCode
 from utils import Redis
+from ..api import *
 
 bp = get_blueprint(__name__, '鉴权登陆')
 
@@ -37,14 +37,14 @@ def post_login(**kwargs):
         if captcha == kwargs['captcha'].lower():
             if user := execute_sql(select(User).where(User.account == kwargs['account']), many=False):
                 if user.check_password(kwargs['password']):
-                    return response(RespEnum.OK, {
+                    return {
                         'username': user.username,
                         'role': user.role,
                         'access_token': create_access_token(identity=user.id),
                         'refresh_token': create_refresh_token(user.id),
-                    })
-            return response(RespEnum.WrongPassword)
-    return response(RespEnum.WrongCaptcha)
+                    }
+            raise APIException(RespEnum.WrongPassword)
+    raise APIException(RespEnum.WrongCaptcha)
 
 
 @bp.route('/captcha', methods=['GET'])
@@ -64,13 +64,10 @@ def get_captcha(**kwargs):
     获取验证码
     """
     img, code = ImageCode().draw_verify_code()
-    imgio = BytesIO()
-    img.save(imgio, 'png')
-    resp = make_response(imgio.getvalue())
-    imgio.close()
-    resp.content_type = 'image/png'
-    Redis.set(f'captcha:{kwargs["random"]}', code.lower(), ex=300)
-    return resp
+    with BytesIO() as imgio:
+        img.save(imgio, 'png')
+        Redis.set(f'captcha:{kwargs["random"]}', code.lower(), ex=300)
+        return imgio.getvalue()
 
 
 @bp.route('/refresh', methods=['POST'])
@@ -84,4 +81,4 @@ def post_refresh(**kwargs):
     """
     利用refresh token获取新的access token
     """
-    return response(RespEnum.OK, {'access_token': create_access_token(identity=get_jwt_identity())})
+    return {'access_token': create_access_token(identity=get_jwt_identity())}

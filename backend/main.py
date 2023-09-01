@@ -14,7 +14,6 @@ from flask_cors import CORS  # 解决前后端联调的跨域问题
 from flask_jwt_extended import JWTManager
 from flask_jwt_extended import get_jwt_identity
 from flask_jwt_extended import verify_jwt_in_request
-from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import MethodNotAllowed
 from werkzeug.exceptions import NotFound
 
@@ -117,11 +116,6 @@ def register_handler(flask_app):
         finally:
             return resp
 
-    @flask_app.errorhandler(AssertionError)
-    def handle_assertion_error(e: AssertionError):
-        logger.exception(e)
-        return response(RespEnum.IllegalParams)
-
     @flask_app.errorhandler(NotFound)
     def handle_path_error(_):
         logger.debug(f'未定义的地址：{request.base_url}')
@@ -131,16 +125,6 @@ def register_handler(flask_app):
     def handle_method_error(_):
         logger.debug(f'未定义的地址：{request.base_url}，方法：{request.method}')
         return response(RespEnum.MethodNotFound)
-
-    @flask_app.errorhandler(SQLAlchemyError)
-    def handle_sqlalchemy_error(e: SQLAlchemyError):
-        logger.exception(e)
-        return response(RespEnum.DBError)
-
-    @flask_app.errorhandler(Exception)
-    def handle_exception(e: Exception):
-        logger.exception(e)
-        return response(RespEnum.Error)
 
 
 app = create_app()
