@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from config import DATABASE_OLTP_URI
-from models import OLTPModelBase
+from defines import OLTPModelBase
 
 config = context.config
 

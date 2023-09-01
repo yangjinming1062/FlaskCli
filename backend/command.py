@@ -12,9 +12,7 @@ Options:
 from docopt import docopt
 from sqlalchemy.orm import Session
 
-from enums import RoleEnum
-from models import OLTPEngine
-from models import User
+from defines import *
 from utils import Kafka
 from utils import exceptions
 from utils import generate_key

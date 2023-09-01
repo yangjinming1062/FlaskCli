@@ -12,9 +12,7 @@ from sqlalchemy.orm import Relationship
 
 from apis.api import ParamDefine
 from backend.main import app
-from models import ModelTemplate
-from models import OLAPModelsDict
-from models import OLTPModelsDict
+from defines import *
 from schemas import *
 
 # 忽略的请求类型

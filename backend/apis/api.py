@@ -27,8 +27,7 @@ from sqlalchemy import update
 from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
 
-from enums import *
-from models import *
+from defines import *
 from utils import ExtensionJSONEncoder
 from utils import execute_sql
 from utils import logger
@@ -313,7 +312,8 @@ def api_wrapper(
                 if response_param:
                     for key in _SUCCESSFUL_RESP:
                         if key in response_param:
-                            data = _resp_params(response_param[key], resp, kwargs.get('Accept-Language', LanguageEnum.ZH))
+                            data = _resp_params(response_param[key], resp,
+                                                kwargs.get('Accept-Language', LanguageEnum.ZH))
                             return response(key, data, headers=response_header)
                 else:
                     return response(RespEnum.NoContent, headers=response_header)

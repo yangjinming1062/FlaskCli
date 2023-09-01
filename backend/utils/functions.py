@@ -12,9 +12,7 @@ from typing import Union
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from models import OLAPEngine
-from models import OLAPModelsDict
-from models import OLTPEngine
+from defines import *
 from utils import logger
 
 _OLAP_TABLES = {item.__tablename__ for item in OLAPModelsDict.values()}

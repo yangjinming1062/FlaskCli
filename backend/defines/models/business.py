@@ -11,8 +11,8 @@ import string
 from werkzeug.security import check_password_hash
 from werkzeug.security import generate_password_hash
 
-from enums import *
 from .base import *
+from ..enums import *
 
 
 class User(OLTPModelBase, TimeColumns):

@@ -26,8 +26,7 @@ from config import KAFKA_PRODUCER_CONFIG
 from config import REDIS_HOST
 from config import REDIS_PORT
 from config import REDIS_PWD
-from enums import *
-from models import ModelTemplate
+from defines import *
 from utils import logger
 
 _redis_pool = redis.ConnectionPool(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PWD, decode_responses=True)
