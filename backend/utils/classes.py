@@ -125,7 +125,7 @@ class Kafka(metaclass=Singleton):
         producer.poll(0)
 
 
-class ExtensionJSONEncoder(json.JSONEncoder):
+class JSONExtensionEncoder(json.JSONEncoder):
     """
     处理枚举等各种无法JSON序列化的类型
     """
@@ -134,7 +134,7 @@ class ExtensionJSONEncoder(json.JSONEncoder):
         if isinstance(obj, Enum):
             return obj.name
         if isinstance(obj, datetime):
-            return obj.astimezone(tz).isoformat(timespec='seconds')
+            return obj.strftime('%Y-%m-%d %H:%M:%S')
         if isinstance(obj, Row):
             return dict(obj._mapping)
         if isinstance(obj, ModelTemplate):

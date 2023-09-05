@@ -10,8 +10,8 @@ import sys
 
 from loguru import logger
 
-from .classes import ExtensionJSONEncoder
 from .classes import ImageCode
+from .classes import JSONExtensionEncoder
 from .classes import Kafka
 from .classes import Redis
 from .classes import Singleton

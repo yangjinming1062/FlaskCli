@@ -19,7 +19,7 @@ from werkzeug.exceptions import NotFound
 
 from apis import *
 from defines import *
-from utils import ExtensionJSONEncoder
+from utils import JSONExtensionEncoder
 from utils import logger
 
 jwt = JWTManager()
@@ -28,7 +28,7 @@ cors = CORS()
 
 def create_app():
     flask_app = Flask(__name__)
-    flask_app.json_encoder = ExtensionJSONEncoder
+    flask_app.json_encoder = JSONExtensionEncoder
     flask_app.config.update({
         'JWT_SECRET_KEY': os.environ.get('JWT_SECRET_KEY', 'flaskcli'),
         'JWT_ACCESS_TOKEN_EXPIRES': int(os.environ.get('JWT_ACCESS_TOKEN_EXPIRES', 86400 * 7)),

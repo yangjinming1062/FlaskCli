@@ -21,6 +21,7 @@ from sqlalchemy import Row
 from sqlalchemy import case
 from sqlalchemy import func
 from sqlalchemy import insert
+from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy import text
 from sqlalchemy import update
@@ -28,7 +29,7 @@ from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
 
 from defines import *
-from utils import ExtensionJSONEncoder
+from utils import JSONExtensionEncoder
 from utils import execute_sql
 from utils import logger
 
@@ -108,7 +109,7 @@ def response(base_response: RespEnum, data=None, headers=None):
         }), status)
     else:
         if isinstance(data, (list, dict)):
-            resp = make_response(json.dumps(data, cls=ExtensionJSONEncoder), status)
+            resp = make_response(json.dumps(data, cls=JSONExtensionEncoder), status)
         else:
             resp = make_response(data, status)
     resp.headers['Content-Type'] = 'application/json'
@@ -546,7 +547,10 @@ def query_condition(sql, params: dict, column: Column, field_name=None, op_func=
         else:
             assert op_type is not None, 'op_type 和 op_func 至少一个不为None'
             if op_type == 'like':
-                return sql.where(column.like(f'%{param}%'))
+                if isinstance(param, list):
+                    return sql.where(or_(*[column.like(f'%{x}%') for x in param]))
+                else:
+                    return sql.where(column.like(f'%{param}%'))
             elif op_type == 'in':
                 return sql.where(column.in_(param))
             elif op_type == 'notin':

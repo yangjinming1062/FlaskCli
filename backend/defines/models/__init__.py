@@ -14,20 +14,17 @@ from .business import User
 from .system import ApiRequestLogs
 
 _base = [
+    'ModelTemplate',
     'OLAPEngine',
     'OLAPModelBase',
     'OLAPModelsDict',
     'OLTPEngine',
     'OLTPModelBase',
     'OLTPModelsDict',
-    'ModelTemplate'
 ]
 
-OLAPModelsDict = {n: m for n, m in locals().items() if isinstance(m, type) and issubclass(m, OLAPModelBase)}
-OLAPModelsDict.pop('OLAPModelBase', None)
-
-OLTPModelsDict = {n: m for n, m in locals().items() if isinstance(m, type) and issubclass(m, OLTPModelBase)}
-OLTPModelsDict.pop('OLTPModelBase', None)
+OLAPModelsDict = {x.__name__: x for x in OLAPModelBase.__subclasses__()}
+OLTPModelsDict = {x.__name__: x for x in OLTPModelBase.__subclasses__()}
 
 # 限制 from models import * 时导入的内容
 __all__ = _base + list(OLAPModelsDict.keys()) + list(OLTPModelsDict.keys())
