@@ -17,9 +17,9 @@ class ApiRequestLogs(OLAPModelBase):
     __tablename__ = 'api_request_logs'
     user_id: Mapped[str_id]
     created_at: Mapped[datetime]
-    method: Mapped[str_s]
-    blueprint: Mapped[str_s]
-    uri: Mapped[str_l]
+    method: Mapped[str_small]
+    blueprint: Mapped[str_small]
+    uri: Mapped[str_large]
     status: Mapped[int]
     duration: Mapped[int]
     source_ip: Mapped[IPv4Address] = mapped_column(String(16))

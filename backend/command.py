@@ -13,7 +13,6 @@ from docopt import docopt
 from sqlalchemy.orm import Session
 
 from defines import *
-from utils import Kafka
 from utils import exceptions
 from utils import generate_key
 
@@ -40,7 +39,6 @@ def init_user(account, username, password):
             user.email = '-'
             session.add(user)
         session.commit()
-        print('Success!')
 
 
 def init_database():
@@ -53,21 +51,12 @@ def init_database():
     pass
 
 
-def test_kafka():
-    """
-    测试kafka连通性
-    Returns:
-
-    """
-    kafka = Kafka()
-    kafka.produce('test', '{}')
-
-
 if __name__ == '__main__':
     options = docopt(__doc__, version='Command v1.0')
     if options['user']:
         init_user(options['--account'], options['--username'], options['--password'])
     elif options['init']:
         init_database()
-    elif options['kafka']:
-        test_kafka()
+    else:
+        print('Missed Options')
+    print('Success!')

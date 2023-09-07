@@ -5,8 +5,6 @@ from flask_jwt_extended import create_refresh_token
 from flask_jwt_extended import get_jwt_identity
 from flask_jwt_extended import jwt_required
 
-from utils import ImageCode
-from utils import Redis
 from ..api import *
 
 bp = get_blueprint(__name__, '鉴权登陆')

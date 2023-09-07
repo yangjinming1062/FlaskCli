@@ -12,8 +12,8 @@ COPY ./backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple/
 # 拷贝项目内容
 COPY ./backend .
-COPY ./migrations ./migrations_init
 COPY ./initDB.sh .
+RUN mv migrations migrations_init
 
 EXPOSE 5000
 

@@ -13,6 +13,7 @@ from typing import Any
 from typing import Iterable
 from typing import Union
 
+from clickhouse_driver import Client
 from flask import Blueprint
 from flask import make_response
 from flask import request
@@ -28,10 +29,9 @@ from sqlalchemy import update
 from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
 
+from config import DATABASE_OLAP_URI
 from defines import *
-from utils import JSONExtensionEncoder
-from utils import execute_sql
-from utils import logger
+from utils import *
 
 oltp_session_factory = scoped_session(sessionmaker(bind=OLTPEngine))
 _SUCCESSFUL_RESP = [RespEnum.OK, RespEnum.Created, RespEnum.Accepted]
@@ -84,10 +84,8 @@ def get_blueprint(path, name):
     """
     生成API的蓝图：方便统一调整
     """
-    tmp = path.split('.')
-    version = tmp[-2]
-    _name = tmp[-1]
-    return Blueprint(name, __name__, url_prefix=f'/api/{version}/{_name}')
+    url_prefix = f'/{path.replace(".", "/")}'
+    return Blueprint(name, __name__, url_prefix=url_prefix)
 
 
 def response(base_response: RespEnum, data=None, headers=None):
@@ -156,7 +154,7 @@ def api_wrapper(
             return value
         elif define is datetime:
             # 时间类型
-            return datetime.fromisoformat(value)
+            return datetime.strptime(value, Constants.DEFINE_DATE_FORMAT)
         elif issubclass(define, ModelTemplate):
             # model定义
             return define(**value)
@@ -285,7 +283,7 @@ def api_wrapper(
         @wraps(function)
         def wrapper(*args, **kwargs):
             kwargs['oltp_session'] = oltp_session_factory()
-            kwargs['olap_session'] = OLAPEngine
+            kwargs['olap_session'] = Client.from_url(DATABASE_OLAP_URI)
             try:
                 if request.uid:
                     # 登录的token还有效，但是token内的uid已经不在来（几乎不存在，但有可能）
@@ -340,6 +338,7 @@ def api_wrapper(
                 else:
                     return response(RespEnum.Error, headers=response_header)
             finally:
+                kwargs['olap_session'].disconnect()
                 kwargs['oltp_session'].commit()
 
         return wrapper

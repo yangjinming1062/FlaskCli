@@ -11,9 +11,9 @@ bp = get_blueprint(__name__, '系统管理')
 @bp.route('/users', methods=['GET'])
 @api_wrapper(
     request_param={
-        '*page': ParamDefine(int, '页码', default=1),
-        '*size': ParamDefine(int, '每页数量', default=10),
-        'sort': ParamDefine(List[str], '排序字段'),
+        '*page': ParamDefine(int, '页码'),
+        '*size': ParamDefine(int, '每页数量'),
+        'sort': ParamDefine(List[str], '排序字段', default=['-updated_at']),
         'keyword': ParamDefine(str, '账号/用户名'),
     },
     response_param={
@@ -48,8 +48,6 @@ def get_users(**kwargs):
     )
     if keyword := kwargs.get('keyword'):
         sql = sql.where(User.account.like(f'%{keyword}%') | User.username.like(f'%{keyword}%'))
-    if not kwargs.get('sort'):
-        kwargs['sort'] = ['-updated_at']
     return paginate_query(sql, kwargs, False)
 
 
@@ -152,13 +150,13 @@ def reset_password(uid, **kwargs):
 @bp.route('/logs', methods=['GET'])
 @api_wrapper(
     request_param={
-        '*page': ParamDefine(int, '页码', default=1),
-        '*size': ParamDefine(int, '每页数量', default=10),
-        'sort': ParamDefine(List[str], '排序字段'),
+        '*page': ParamDefine(int, '页码'),
+        '*size': ParamDefine(int, '每页数量'),
+        'sort': ParamDefine(List[str], '排序字段', default=['-created_at']),
         'ip': ParamDefine(str, 'IP'),
         'account': ParamDefine(str, '账号'),
         'username': ParamDefine(str, '用户名'),
-        'method': ParamDefine(List[MethodEnum], '请求类型'),
+        'method': ParamDefine(List[str], '请求类型'),
         'status': ParamDefine(List[int], '状态码'),
         'created_at_start': ParamDefine(datetime),
         'created_at_end': ParamDefine(datetime),
@@ -226,6 +224,4 @@ def get_logs(**kwargs):
     sql = query_condition(sql, kwargs, ApiRequestLogs.method, op_type='in')
     sql = query_condition(sql, kwargs, ApiRequestLogs.status, op_type='in')
     sql = query_condition(sql, kwargs, ApiRequestLogs.created_at, op_type='datetime')
-    if not kwargs.get('sort'):
-        kwargs['sort'] = ['-created_at']
     return paginate_query(sql, kwargs, False, format_func, session=kwargs['olap_session'])

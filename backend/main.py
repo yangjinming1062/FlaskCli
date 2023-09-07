@@ -17,6 +17,7 @@ from flask_jwt_extended import verify_jwt_in_request
 from werkzeug.exceptions import MethodNotAllowed
 from werkzeug.exceptions import NotFound
 
+import config
 from apis import *
 from defines import *
 from utils import JSONExtensionEncoder
@@ -29,14 +30,8 @@ cors = CORS()
 def create_app():
     flask_app = Flask(__name__)
     flask_app.json_encoder = JSONExtensionEncoder
-    flask_app.config.update({
-        'JWT_SECRET_KEY': os.environ.get('JWT_SECRET_KEY', 'flaskcli'),
-        'JWT_ACCESS_TOKEN_EXPIRES': int(os.environ.get('JWT_ACCESS_TOKEN_EXPIRES', 86400 * 7)),
-        'JWT_REFRESH_TOKEN_EXPIRES': int(os.environ.get('JWT_REFRESH_TOKEN_EXPIRES', 86400 * 30)),
-        'JWT_BLACKLIST_ENABLED': False,
-        'JWT_COOKIE_CSRF_PROTECT': True,
-        'JSON_AS_ASCII': False,
-    })
+    c = {k: v for k, v in config.__dict__.items() if not k.startswith('_')}
+    flask_app.config.update(c)
     jwt.init_app(flask_app)
     cors.init_app(flask_app, supports_credentials=True)
     for bp in Blueprints:

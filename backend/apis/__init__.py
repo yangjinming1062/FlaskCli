@@ -4,7 +4,7 @@ from glob import glob
 
 from .api import *
 
-for name in glob(os.path.dirname(__file__) + '/v*/*.??'):
+for name in glob(os.path.dirname(__file__) + '/*/*.??'):
     if os.path.isfile(name) and not name.endswith('__.py'):
         tmp = name.split(os.sep)
         api = tmp[-3]

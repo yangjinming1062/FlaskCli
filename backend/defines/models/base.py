@@ -17,9 +17,8 @@ from sqlalchemy import DateTime
 from sqlalchemy import String
 from sqlalchemy import create_engine
 from sqlalchemy import func
-from sqlalchemy.dialects.mysql import JSON
+from sqlalchemy import JSON
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import DeclarativeMeta
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm.collections import InstrumentedList
@@ -33,9 +32,10 @@ OLAPEngine = Client.from_url(DATABASE_OLAP_URI)
 OLTPEngine = create_engine(DATABASE_OLTP_URI, pool_size=150, pool_recycle=60)
 
 str_id = Annotated[str, mapped_column(String(16))]
-str_s = Annotated[str, mapped_column(String(32))]
-str_m = Annotated[str, mapped_column(String(64))]
-str_l = Annotated[str, mapped_column(String(128))]
+str_small = Annotated[str, mapped_column(String(32))]
+str_medium = Annotated[str, mapped_column(String(64))]
+str_large = Annotated[str, mapped_column(String(128))]
+str_huge = Annotated[str, mapped_column(String(256))]
 
 
 class ModelTemplate:
@@ -78,7 +78,7 @@ class ModelTemplate:
             value = getattr(self, prop.key)
             if isinstance(value, InstrumentedList):
                 result[prop.key] = [item.json() for item in value]
-            elif isinstance(value, DeclarativeMeta):
+            elif isinstance(value, ModelTemplate):
                 result[prop.key] = value.json()
             elif isinstance(prop.columns[0].type, JSON):
                 result[prop.key] = value if value else None

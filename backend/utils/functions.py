@@ -9,9 +9,11 @@ import uuid
 from functools import wraps
 from typing import Union
 
+from clickhouse_driver import Client
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from config import DATABASE_OLAP_URI
 from defines import *
 from utils import logger
 
@@ -32,25 +34,25 @@ def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, se
         当SQL是查询类语句时：返回列表、实例对象、Row对象
         当SQL是非查询类语句时：返回受影响的行数/错误消息/None, 是否执行成功
     """
-    tp_flag = session is not OLAPEngine
+    tp_flag = not isinstance(session, Client)
     if sql.is_select:
         if session_flag := session is None:
             if sql.froms[0].name in _OLAP_TABLES:
                 tp_flag = False
-                session = OLAPEngine
+                session = Client.from_url(DATABASE_OLAP_URI)
             else:
                 session = Session(OLTPEngine)
     else:
         if session_flag := session is None:
             if sql.table.name in _OLAP_TABLES:
                 tp_flag = False
-                session = OLAPEngine
+                session = Client.from_url(DATABASE_OLAP_URI)
             else:
                 session = Session(OLTPEngine)
     try:
         if sql.is_select:
             if not tp_flag:
-                sql = sql.compile(compile_kwargs={"literal_binds": True}).string
+                sql = sql.compile(compile_kwargs={'literal_binds': True}).string
             executed = session.execute(sql)
             if many:
                 result = executed.fetchall() if tp_flag else executed
@@ -74,7 +76,7 @@ def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, se
             else:
                 if params:
                     sql = sql.values(params)
-                sql = sql.compile(compile_kwargs={"literal_binds": True}).string
+                sql = sql.compile(compile_kwargs={'literal_binds': True}).string
                 session.execute(sql)
                 return '', True
         else:
@@ -96,9 +98,12 @@ def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, se
         logger.exception(exx)
         return str(exx), False
     finally:
-        if session_flag and tp_flag:
-            session.commit()
-            session.close()
+        if session_flag:
+            if tp_flag:
+                session.commit()
+                session.close()
+            else:
+                session.disconnect()
 
 
 def exceptions(default=None):

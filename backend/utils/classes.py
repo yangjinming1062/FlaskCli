@@ -11,7 +11,6 @@ import string
 from datetime import datetime
 from ipaddress import IPv4Address
 
-import pytz
 import redis
 from PIL import Image
 from PIL import ImageDraw
@@ -28,12 +27,10 @@ from config import REDIS_PORT
 from config import REDIS_PWD
 from defines import *
 from utils import logger
+from .constants import Constants
 
 _redis_pool = redis.ConnectionPool(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PWD, decode_responses=True)
 Redis = redis.Redis(connection_pool=_redis_pool)
-
-# 获取东八区时区对象
-tz = pytz.timezone('Asia/Shanghai')
 
 
 # 单例基类
@@ -134,7 +131,7 @@ class JSONExtensionEncoder(json.JSONEncoder):
         if isinstance(obj, Enum):
             return obj.name
         if isinstance(obj, datetime):
-            return obj.strftime('%Y-%m-%d %H:%M:%S')
+            return obj.strftime(Constants.DEFINE_DATE_FORMAT)
         if isinstance(obj, Row):
             return dict(obj._mapping)
         if isinstance(obj, ModelTemplate):
