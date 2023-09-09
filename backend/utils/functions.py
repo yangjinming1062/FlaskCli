@@ -59,7 +59,13 @@ def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, se
                 if scalar:
                     result = [row[0] for row in result]
             else:
-                result = executed.first() if tp_flag else executed[0]
+                if tp_flag:
+                    result = executed.first()
+                else:
+                    if executed:
+                        result = executed[0]
+                    else:
+                        return None
                 if scalar and result:
                     result = result[0]
             if session_flag and tp_flag:
@@ -70,14 +76,19 @@ def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, se
             # 插入返回新增实例的ID
             if tp_flag:
                 result = session.execute(sql, params) if params is not None else session.execute(sql)
-                created_id = [key[0] for key in result.inserted_primary_key_rows]
                 session.flush()
-                return created_id if params else created_id[0], True
+                if hasattr(result, 'inserted_primary_key_rows'):
+                    created_id = [key[0] for key in result.inserted_primary_key_rows]
+                    return created_id if params else created_id[0], True
+                else:
+                    return '', True
             else:
-                if params:
-                    sql = sql.values(params)
                 sql = sql.compile(compile_kwargs={'literal_binds': True}).string
-                session.execute(sql)
+                if params:
+                    sql = sql.split('VALUES')[0] + 'VALUES'
+                    session.execute(sql, params=params)
+                else:
+                    session.execute(sql)
                 return '', True
         else:
             # 更新和删除返回受影响的行数
@@ -91,7 +102,7 @@ def execute_sql(sql, *, many: bool = False, scalar: bool = True, params=None, se
         if tp_flag:
             session.rollback()
         logger.exception(ex)
-        return ex.orig.args[1], False
+        return ex.args[0], False
     except Exception as exx:
         if tp_flag:
             session.rollback()

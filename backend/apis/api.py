@@ -10,6 +10,7 @@ from datetime import datetime
 from functools import partial
 from functools import wraps
 from typing import Any
+from typing import Dict
 from typing import Iterable
 from typing import Union
 
@@ -19,7 +20,6 @@ from flask import make_response
 from flask import request
 from sqlalchemy import Column
 from sqlalchemy import Row
-from sqlalchemy import case
 from sqlalchemy import func
 from sqlalchemy import insert
 from sqlalchemy import or_
@@ -41,24 +41,27 @@ class ParamDefine:
     """
     API接口参数定义类
     """
-    __slots__ = ('type', 'comment', 'default', 'valid', 'key', 'resp')
+    __slots__ = ('type', 'required', 'comment', 'default', 'valid', 'key', 'resp')
     type: Any
+    required: bool
     comment: str
     default: Any
     valid: Any
     resp: RespEnum
 
-    def __init__(self, type_, comment='', **kwargs):
+    def __init__(self, type_, required: bool = False, comment: str = '', **kwargs):
         """
         参数定义
         Args:
             type_: 数据类型
+            required: 是否必填
             comment: 注释
             valid: 参数校验（一个返回bool值的校验函数）
             resp: 参数不满足时的错误提示
             key: 定义响应参数时序列化数据的key（默认和参数同名）
         """
         self.type = type_
+        self.required = required
         self.comment = comment
         self.key = None
         for key, value in kwargs.items():
@@ -69,6 +72,28 @@ class ParamDefine:
         确保类是callable的才可以放到List或Dict中
         """
         pass
+
+
+class ParamSchema:
+    """
+    接口参数定义
+    """
+    define: ParamDefine
+
+    @staticmethod
+    def is_schema(value) -> bool:
+        """
+        判断指定数据是否是Schema定义
+        Args:
+            value:
+
+        Returns:
+            是否是ParamSchema
+        """
+        if isinstance(value, ParamSchema):
+            return True
+        else:
+            return type(value) is type and issubclass(value, ParamSchema)
 
 
 class APIException(Exception):
@@ -112,22 +137,24 @@ def response(base_response: RespEnum, data=None, headers=None):
             resp = make_response(data, status)
     resp.headers['Content-Type'] = 'application/json'
     if headers:
-        resp.headers.update(headers)
+        if ParamSchema.is_schema(headers):
+            headers = headers.define
+        resp.headers.update(headers.type)
     return resp
 
 
 def api_wrapper(
-        request_header: dict = None,
-        request_param: dict = None,
-        response_param: dict = None,
-        response_header: dict = None,
+        request_header: Union[ParamDefine, ParamSchema] = None,
+        request_param: Union[ParamDefine, ParamSchema] = None,
+        response_param: Dict[RespEnum, Union[ParamDefine, ParamSchema]] = None,
+        response_header: Union[ParamDefine, ParamSchema] = None,
         permission: set = None
 ):
     """
     装饰器：统一处理API响应异常以及必要参数的校验
     Args:
         request_header: 请求头中的参数
-        request_param: 当前接口包含的字段（key为字段名称，value为字段类型），如果参数为必填在在名称前添加*
+        request_param: 当前接口包含的字段
         response_param: 当前接口的响应数据结构，用于生成接口文档
         response_header: 响应头，用于生成接口文档
         permission: 接口权限
@@ -137,6 +164,13 @@ def api_wrapper(
     """
 
     def _get_params():
+        """
+        获取请求的参数
+            GET、DELETE： query参数
+            POST、PUT、PATCH： json参数
+        Returns:
+            dict
+        """
         result = {}
         # GET和DELETE按照规范是使用url参数
         if request.method in ('GET', 'DELETE'):
@@ -149,6 +183,15 @@ def api_wrapper(
         return result
 
     def _req_value(define, value):
+        """
+        设置请求参数的格式
+        Args:
+            define: 参数定义
+            value: 传入值
+
+        Returns:
+            类型转化后的参数
+        """
         if define is Any:
             # 参数可以是任意类型
             return value
@@ -171,106 +214,155 @@ def api_wrapper(
             return define(value)
 
     def _resp_value(define: ParamDefine, value, language):
+        """
+        输出参数的校验及特殊类型的序列化
+        Args:
+            define: 参数定义
+            value: 传入值
+            language: 语言类型，可以在这里根据不同语言切换不同的处理
+
+        Returns:
+            处理后的参数
+        """
         if value is None and hasattr(define, 'default'):
             return define.default
         return value
 
-    def _req_params(define, source, flag: bool):
+    def _req_params(define: Union[ParamDefine, ParamSchema], source, flag: bool):
+        """
+        根据定义生成请求参数
+        Args:
+            define: 参数定义
+            source: 传入参数
+            flag: 是否是GET或DELETE请求（影响参数获取方式）
+
+        Returns:
+            请求参数
+        """
+        # 判断传过来是的共用的Schema还是单独定义的dict
+        if ParamSchema.is_schema(define):
+            define = define.define
         if not isinstance(source, dict):
             raise Exception(RespEnum.ParamsMissed)
         result = {}
-        for key, value in define.items():
-            # 1. 判断是否为必填参数
-            if key.startswith('*'):
-                key = key[1:]
-                if key not in source:
-                    raise Exception(RespEnum.ParamsMissed)
-            # 2. 每一个属性都需要通过ParamDefine进行定义声明
-            assert isinstance(value, ParamDefine)
+        assert isinstance(define.type, dict)
+        for field_name, field_define in define.type.items():
+            # 1. 每一个属性都需要通过ParamDefine进行定义声明
+            assert isinstance(field_define, ParamDefine)
+            # 2. 判断是否为必填参数
+            if field_define.required and field_name not in source:
+                raise Exception(RespEnum.ParamsMissed)
             # 3. 判断非必填的参数是否存在
-            if key in source:
+            if field_name in source:
                 # 从这里开始需要对各种类型的参数进行处理
-                str_type = str(value.type)
+                str_type = str(field_define.type)
                 # 3.1 List类型的嵌套
                 if str_type.startswith('typing.List'):
-                    if isinstance(source[key], list):
-                        l_type = value.type.__args__[0]
-                        if isinstance(l_type, ParamDefine):
-                            # List需要套一层ParamDefine的也就只有dict，不然普通的类型直接放到List里面就行，所以这里需要按嵌套结构处理
-                            result = [_req_params(l_type.type, row, flag) for row in source[key]]
+                    if isinstance(source[field_name], list):
+                        # 获取List中定义的子类型是什么
+                        inner_type = field_define.type.__args__[0]
+                        if isinstance(inner_type, ParamDefine):
+                            # List需要套一层ParamDefine的也就只有dict或ParamSchema，不然普通的类型直接放到List里面就行，所以这里需要按嵌套结构处理
+                            result = [_req_params(inner_type.type, row, flag) for row in source[field_name]]
                         else:
-                            result[key] = list(map(partial(_req_value, l_type), source[key]))
+                            # 通过偏函数partial将inner_type作为_req_value的第一个参数生成一个新的只需要value参数的函数，使用map高阶函数遍历
+                            result[field_name] = list(map(partial(_req_value, inner_type), source[field_name]))
                     else:
+                        # 如果入参不是数组则提示参数错误
                         raise Exception(RespEnum.ParamsValueError)
                 # 3.2 Dict意味着允许传递对象类型的参数，但是具体有哪些key未作限定
                 elif str_type.startswith('typing.Dict'):
-                    assert isinstance(source[key], dict)
-                    k_type = value.__args__[0]
-                    v_type = value.__args__[1]
-                    result[key] = {_req_value(k_type, k): _req_value(v_type, v) for k, v in source[key].items()}
+                    # TODO： 这里面再嵌套ParamDefine可能需要再完善，但是需要typing.Dict的基本都是动态定义，应该情况极少
+                    assert isinstance(source[field_name], dict)
+                    key_type = field_define.__args__[0]
+                    value_type = field_define.__args__[1]
+                    result[field_name] = {
+                        _req_value(key_type, k): _req_value(value_type, v)
+                        for k, v in source[field_name].items()
+                    }
                 # 3.3 嵌套结构
-                elif isinstance(value.type, dict):
-                    result[key] = _req_params(value.type, source[key], flag)
+                elif isinstance(field_define.type, dict):
+                    result[field_name] = _req_params(field_define, source[field_name], flag)
                 # 3.4 其他常规情况
                 else:
-                    if flag and len(source[key]) == 1:  # Get、Delete获取的都是list
-                        result[key] = _req_value(value.type, source[key][0])
+                    # Get、Delete获取的都是list
+                    if flag and len(source[field_name]) == 1:
+                        # 能到这步定义肯定就不是要的list了，所以直接取出第一个即可
+                        result[field_name] = _req_value(field_define.type, source[field_name][0])
                     else:
-                        result[key] = _req_value(value.type, source[key])
+                        result[field_name] = _req_value(field_define.type, source[field_name])
                 # 4. 如果提供了校验函数则校验数据取值
-                if hasattr(value, 'valid'):
+                if hasattr(field_define, 'valid'):
                     try:
-                        if isinstance(result[key], (list, dict)):
-                            assert all(map(value.valid, result[key]))
+                        if isinstance(result[field_name], (list, dict)):
+                            # 如果是可遍历的类型则遍历校验所有子项都满足参数要求
+                            assert all(map(field_define.valid, result[field_name]))
                         else:
-                            assert value.valid(result[key])
+                            assert field_define.valid(result[field_name])
                     except:
-                        if hasattr(value, 'resp'):
-                            raise Exception(value.resp)
+                        if hasattr(field_define, 'resp'):
+                            # 参数定义的时候定义了校验不通过的响应则优先使用定义的（主要是满足不同的参数校验需要给出不同提示的场景）
+                            raise Exception(field_define.resp)
                         else:
+                            # 没有提供特定的响应则使用默认的
                             raise Exception(RespEnum.ParamsRangeError)
             else:
                 # 3.1 没传参数则看看有没有默认值
-                if hasattr(value, 'default'):
-                    result[key] = value.default
+                if hasattr(field_define, 'default'):
+                    result[field_name] = field_define.default
                     continue
         return result
 
-    def _resp_params(define: ParamDefine, data, language):
+    def _resp_params(define: Union[ParamDefine, ParamSchema], source, language: LanguageEnum):
+        """
+        根据参数定义生成响应参数
+        Args:
+            define: 参数定义
+            source: 接口输出
+            language: 语言类型
+
+        Returns:
+            响应参数
+        """
+        if ParamSchema.is_schema(define):
+            define = define.define
         if define.type is None:
+            # 接口不需要响应数据
             return None
-        # 2 嵌套结构
+        # 1 嵌套结构
         if isinstance(define.type, dict):
             result = {}
-            for key, value in define.type.items():
-                if key.startswith('*'):
-                    key = key[1:]
-                    must_flag = True
+            for field_name, field_define in define.type.items():
+                if ParamSchema.is_schema(field_define):
+                    field_define = field_define.define
+                if isinstance(source, (Row, ModelTemplate)):
+                    # 如果是查询数据库获得的实例对象则递归处理
+                    tmp = _resp_params(field_define, getattr(source, field_define.key or field_name), language)
+                elif isinstance(source, dict):
+                    # 也是递归，但dict类型是.get，上面是getattr
+                    tmp = _resp_params(field_define, source.get(field_define.key or field_name, None), language)
                 else:
-                    must_flag = False
-                if isinstance(data, (Row, ModelTemplate)):
-                    tmp = _resp_params(value, getattr(data, value.key or key), language)
-                elif isinstance(data, dict):
-                    tmp = _resp_params(value, data.get(value.key or key, None), language)
-                else:
+                    # 定义要求是个dict类型但是接口的响应既不是实例也不是dict那就只能是按None进行返回了
                     tmp = None
-                if must_flag or tmp:
-                    result[key] = tmp
+                if field_define.required or tmp:
+                    # 必填参数或者可选参数也有数据则进行赋值
+                    result[field_name] = tmp
             return result
-        # 1 List类型的嵌套
+        # 2 List类型的嵌套
         elif str(define.type).startswith('typing.List'):
-            if isinstance(data, Iterable):
-                l_type = define.type.__args__[0]
-                if isinstance(l_type, ParamDefine):
-                    return [_resp_params(l_type, row, language) for row in data]
+            if isinstance(source, Iterable):
+                inner_type = define.type.__args__[0]
+                # 这里为什么分开处理见_req_params的List嵌套的处理注释
+                if isinstance(inner_type, ParamDefine):
+                    return [_resp_params(inner_type, row, language) for row in source]
                 else:
-                    return list(map(partial(_resp_value, define, language=language), data))
+                    return list(map(partial(_resp_value, define, language=language), source))
             else:
-                logger.debug(data, 'data is not a list')
+                logger.debug(source, 'data is not a list')
                 return []
         # 3 其他常规情况
         else:
-            return _resp_value(define, data, language)
+            return _resp_value(define, source, language)
 
     def decorator(function):
         function.__apispec__ = {
@@ -285,6 +377,7 @@ def api_wrapper(
             kwargs['oltp_session'] = oltp_session_factory()
             kwargs['olap_session'] = Client.from_url(DATABASE_OLAP_URI)
             try:
+                # 1. 接口的鉴权处理：获取登陆的user
                 if request.uid:
                     # 登录的token还有效，但是token内的uid已经不在来（几乎不存在，但有可能）
                     user = execute_sql(select(User).where(User.id == request.uid), session=kwargs['oltp_session'])
@@ -294,29 +387,29 @@ def api_wrapper(
                         return response(RespEnum.Forbidden, headers=response_header)
                 else:
                     user = None
+                kwargs['user_id'] = request.uid
                 kwargs['user'] = user
-                if request_param is None and request_header is None:
-                    # 参数为空说明是不需要参数的接口
-                    return function(*args, **kwargs)
+                # 2. 请求参数获取
                 if request_param:
                     # 定义的请求参数要求
-                    req_params = _req_params(request_param, _get_params(), request.method in ('GET', 'DELETE'))
-                else:
-                    # 这种情况是参数定义为空字典，表示可以接收任意的请求参数
-                    req_params = _get_params()
-                kwargs.update(req_params)
+                    kwargs.update(_req_params(request_param, _get_params(), request.method in ('GET', 'DELETE')))
+                # 3. 请求头信息获取
                 if request_header:
                     kwargs.update(_req_params(request_header, {k: v for k, v in request.headers.items()}, False))
+                # 4. API接口调用
                 resp = function(*args, **kwargs)
+                # 5. 接口响应数据处理
                 if response_param:
+                    language = kwargs.get('Accept-Language', LanguageEnum.ZH)
                     for key in _SUCCESSFUL_RESP:
                         if key in response_param:
-                            data = _resp_params(response_param[key], resp,
-                                                kwargs.get('Accept-Language', LanguageEnum.ZH))
+                            data = _resp_params(response_param[key], resp, language)
                             return response(key, data, headers=response_header)
                 else:
+                    # 只要接口正常运行完了就是成功，没数据就返回204
                     return response(RespEnum.NoContent, headers=response_header)
             except APIException as ex:
+                # 接口非正常响应时返回异常状态
                 return response(ex.resp, headers=response_header)
             except AssertionError as ex:
                 kwargs['oltp_session'].rollback()
@@ -355,7 +448,7 @@ def orm_create(cls, params: dict, repeat_resp=RespEnum.KeyRepeat):
         repeat_resp: 新增重复时的响应
 
     Returns:
-        Response
+        新增数据的ID
     """
     _params = {k: v for k, v in params.items() if k in cls.get_columns()}
     result, flag = execute_sql(insert(cls).values(**_params))
@@ -368,30 +461,6 @@ def orm_create(cls, params: dict, repeat_resp=RespEnum.KeyRepeat):
             raise APIException(RespEnum.InvalidInput)
 
 
-def orm_read(cls, resource_id: str, fields: list = None):
-    """
-    ORM数据查询详情
-    Args:
-        cls: OMR类定义
-        resource_id: 资源ID
-        fields: 查询指定的列
-
-    Returns:
-        Response
-    """
-    columns = cls.get_columns()
-    if fields:
-        if set(fields) - set(columns):
-            raise APIException(RespEnum.ParamsRangeError)
-        else:
-            columns = fields
-    sql = select(*cls.to_properties(columns)).select_from(cls).where(cls.id == resource_id)
-    if data := execute_sql(sql, many=False, scalar=False):
-        return data
-    else:
-        raise APIException(RespEnum.NotFound)
-
-
 def orm_update(cls, resource_id: str, params: dict, error_resp=RespEnum.InvalidInput):
     """
     ORM数据的更新
@@ -402,7 +471,7 @@ def orm_update(cls, resource_id: str, params: dict, error_resp=RespEnum.InvalidI
         error_resp: 更新失败时的响应状态
 
     Returns:
-        Response
+        None
     """
     if not params:
         raise APIException(RespEnum.ParamsMissed)
@@ -422,7 +491,7 @@ def orm_delete(cls, resource_id: Union[str, list, set]):
         resource_id:  资源ID
 
     Returns:
-        Response
+        None
     """
     session = oltp_session_factory()
     try:
@@ -440,39 +509,6 @@ def orm_delete(cls, resource_id: Union[str, list, set]):
         session.commit()
 
 
-def orm_paginate(cls, params):
-    """
-    统一分分页查询操作
-    Args:
-        cls: 添加完where条件的SQLAlchemy的查询类
-        params: 请求参数
-
-    Returns:
-        接口响应
-    Example:
-        params = {
-            'page': 1,
-            'size': 10,
-            'field': ['id', 'name'],
-            'query': {'age': {'op': '=', 'value': 18}, 'name': {'op': 'like', 'value': '%Alice%'}}
-        }
-    """
-    # 先处理查询内容
-    columns = set(cls.get_columns())
-    if fields := params.get('field'):
-        if set(fields) - columns:
-            raise APIException(RespEnum.ParamsRangeError)
-    # 构建查询SQL
-    sql = select(*cls.to_property(fields or columns)).select_from(cls)
-    # 构建查询条件
-    if query := params.get('query'):
-        if query.keys() - columns:
-            raise APIException(RespEnum.ParamsRangeError)
-        for column_name, value in query.items():
-            sql = query_condition(sql, query, getattr(cls, column_name), op_type=value['op'])
-    return paginate_query(sql, params, False)
-
-
 def paginate_query(sql, params, scalar=False, format_func=None, session=None):
     """
     统一分分页查询操作
@@ -484,46 +520,45 @@ def paginate_query(sql, params, scalar=False, format_func=None, session=None):
         session: 特殊OLAP等情况需要方法自己提供session
 
     Returns:
-        接口响应
+        {
+            'total': int,
+            'data': List[Any]
+        }
     """
-    total_sql = select(func.count()).select_from(sql)
-    total = execute_sql(total_sql, many=False, scalar=True, session=session)
-    if params['size'] > 100 or params['size'] < 1:
-        raise APIException(RespEnum.ParamsRangeError)
-    if params['page'] < 1:
-        raise APIException(RespEnum.ParamsRangeError)
-    sql = sql.limit(params['size']).offset((params['page'] - 1) * params['size'])
-    for column in params.get('sort', []):
-        if column == '':
-            continue
-        if column[0] in ('+', '-'):
-            direct = 'DESC' if column[0] == '-' else 'ASC'
-            column = column[1:]
-        else:
-            direct = 'ASC'
-        sql = sql.order_by(text(f'{column} {direct}'))
-    result = {
-        'total': total,
-        'data': execute_sql(sql, many=True, scalar=scalar, session=session)
-    }
+
+    def _add_sort(_sql):
+        for column in params.get('sort', []):
+            if column == '':
+                continue
+            if column[0] in ('+', '-'):
+                direct = 'DESC' if column[0] == '-' else 'ASC'
+                column = column[1:]
+            else:
+                direct = 'ASC'
+            _sql = _sql.order_by(text(f'{column} {direct}'))
+        return _sql
+
+    if params['size'] == 0:
+        # 特殊约定的查询全量数据的方式，可以以其他方式，比如size是-1等
+        sql = _add_sort(sql)
+        data = execute_sql(sql, many=True, scalar=scalar, session=session)
+        result = {'total': len(data), 'data': data}
+    else:
+        total_sql = select(func.count()).select_from(sql)
+        total = execute_sql(total_sql, many=False, scalar=True, session=session)
+        if params['size'] > 100 or params['size'] < 1:
+            raise APIException(RespEnum.ParamsRangeError)
+        if params['page'] < 1:
+            raise APIException(RespEnum.ParamsRangeError)
+        sql = sql.limit(params['size']).offset((params['page'] - 1) * params['size'])
+        result = {
+            'total': total,
+            'data': execute_sql(_add_sort(sql), many=True, scalar=scalar, session=session)
+        }
     if format_func:
         # 需要按照特定格式对数据进行修改的时候使用format_func
         result['data'] = list(map(format_func, result['data']))
     return result
-
-
-def safe_column(column, default='-', label=None):
-    """
-    可为空的列在为空时返回默认值
-    Args:
-        column: xxx.xx
-        default: 为空时的替换值
-        label: 变化后的列名，默认保持不变
-
-    Returns:
-        case之后的select列
-    """
-    return case({None: default}, else_=column).label(label if label else column.name)
 
 
 def query_condition(sql, params: dict, column: Column, field_name=None, op_func=None, op_type=None):

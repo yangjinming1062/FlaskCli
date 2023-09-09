@@ -1,8 +1,7 @@
-from typing import List
-
 from sqlalchemy import true
 from sqlalchemy.orm import Session
 
+from . import *
 from ..api import *
 
 bp = get_blueprint(__name__, '系统管理')
@@ -10,24 +9,19 @@ bp = get_blueprint(__name__, '系统管理')
 
 @bp.route('/users', methods=['GET'])
 @api_wrapper(
-    request_param={
-        '*page': ParamDefine(int, '页码'),
-        '*size': ParamDefine(int, '每页数量'),
-        'sort': ParamDefine(List[str], '排序字段', default=['-updated_at']),
-        'keyword': ParamDefine(str, '账号/用户名'),
-    },
+    request_param=PaginateRequestSchema({
+        'sort': ParamDefine(List[str], False, '排序字段', default=['-updated_at']),
+        'keyword': ParamDefine(str, False, '账号/用户名'),
+    }),
     response_param={
-        RespEnum.OK: ParamDefine({
-            '*total': ParamDefine(int, '总数'),
-            '*data': ParamDefine(List[ParamDefine({
-                '*id': ParamDefine(str, '用户ID'),
-                '*account': ParamDefine(str, '账号'),
-                '*role': ParamDefine(RoleEnum, '角色'),
-                '*username': ParamDefine(str, '用户名'),
-                '*phone': ParamDefine(str, '手机号'),
-                '*email': ParamDefine(str, '邮箱'),
-            })])
-        }),
+        RespEnum.OK: PaginateResponseSchema(ParamDefine({
+            'id': ParamDefine(str, True, '用户ID'),
+            'account': ParamDefine(str, True, '账号'),
+            'role': ParamDefine(RoleEnum, True, '角色'),
+            'username': ParamDefine(str, True, '用户名'),
+            'phone': ParamDefine(str, True, '手机号'),
+            'email': ParamDefine(str, True, '邮箱'),
+        }, True)),
     },
     permission={RoleEnum.Admin}
 )
@@ -53,19 +47,17 @@ def get_users(**kwargs):
 
 @bp.route('/users', methods=['POST'])
 @api_wrapper(
-    request_param={
-        '*account': ParamDefine(str, '账号', valid=User.valid_account, resp=RespEnum.InvalidAccount),
-        '*password': ParamDefine(str, '密码', valid=User.valid_password, resp=RespEnum.InvalidPassword),
-        '*username': ParamDefine(str, '用户名', valid=User.valid_username, resp=RespEnum.InvalidUsername),
-        '*phone': ParamDefine(str, '手机号', valid=User.valid_phone, resp=RespEnum.InvalidPhone),
-        '*email': ParamDefine(str, '邮箱', valid=User.valid_email, resp=RespEnum.InvalidEmail),
-    },
+    request_param=ParamDefine({
+        'account': ParamDefine(str, True, '账号', valid=User.valid_account, resp=RespEnum.InvalidAccount),
+        'password': ParamDefine(str, True, '密码', valid=User.valid_password, resp=RespEnum.InvalidPassword),
+        'username': ParamDefine(str, True, '用户名', valid=User.valid_username, resp=RespEnum.InvalidUsername),
+        'phone': ParamDefine(str, True, '手机号', valid=User.valid_phone, resp=RespEnum.InvalidPhone),
+        'email': ParamDefine(str, True, '邮箱', valid=User.valid_email, resp=RespEnum.InvalidEmail),
+    }, True),
     response_param={
-        RespEnum.Created: ParamDefine(str, '用户ID'),
+        RespEnum.Created: ParamDefine(str, True, '用户ID'),
     },
-    response_header={
-        'Content-Type': 'text/plain',
-    },
+    response_header=TextPlainSchema(),
     permission={RoleEnum.Admin}
 )
 def post_user(**kwargs):
@@ -79,11 +71,11 @@ def post_user(**kwargs):
 
 @bp.route('/users/<uid>', methods=['PATCH'])
 @api_wrapper(
-    request_param={
-        'username': ParamDefine(str, '用户名', valid=User.valid_username, resp=RespEnum.InvalidUsername),
-        'phone': ParamDefine(str, '手机号', valid=User.valid_phone, resp=RespEnum.InvalidPhone),
-        'email': ParamDefine(str, '邮箱', valid=User.valid_email, resp=RespEnum.InvalidEmail),
-    },
+    request_param=ParamDefine({
+        'username': ParamDefine(str, False, '用户名', valid=User.valid_username, resp=RespEnum.InvalidUsername),
+        'phone': ParamDefine(str, False, '手机号', valid=User.valid_phone, resp=RespEnum.InvalidPhone),
+        'email': ParamDefine(str, False, '邮箱', valid=User.valid_email, resp=RespEnum.InvalidEmail),
+    }),
     permission={RoleEnum.Admin}
 )
 def patch_user(uid, **kwargs):
@@ -95,9 +87,9 @@ def patch_user(uid, **kwargs):
 
 @bp.route('/users', methods=['DELETE'])
 @api_wrapper(
-    request_param={
-        '*id': ParamDefine(List[str], '用户ID'),
-    },
+    request_param=ParamDefine({
+        'id': ParamDefine(List[str], True, '用户ID'),
+    }),
     permission={RoleEnum.Admin}
 )
 def delete_user(**kwargs):
@@ -115,10 +107,10 @@ def delete_user(**kwargs):
 
 @bp.route('/users/password', methods=['PUT'])
 @api_wrapper(
-    request_param={
-        '*old': ParamDefine(str, '旧密码'),
-        '*new': ParamDefine(str, '新密码', valid=User.valid_password, resp=RespEnum.InvalidPassword),
-    },
+    request_param=ParamDefine({
+        'old': ParamDefine(str, True, '旧密码'),
+        'new': ParamDefine(str, True, '新密码', valid=User.valid_password, resp=RespEnum.InvalidPassword),
+    }),
 )
 def put_password(**kwargs):
     """
@@ -133,9 +125,9 @@ def put_password(**kwargs):
 
 @bp.route('/users/<uid>/password', methods=['PUT'])
 @api_wrapper(
-    request_param={
-        '*password': ParamDefine(str, '密码', valid=User.valid_password, resp=RespEnum.InvalidPassword),
-    },
+    request_param=ParamDefine({
+        'password': ParamDefine(str, True, '密码', valid=User.valid_password, resp=RespEnum.InvalidPassword),
+    }),
     permission={RoleEnum.Admin}
 )
 def reset_password(uid, **kwargs):
@@ -149,33 +141,28 @@ def reset_password(uid, **kwargs):
 
 @bp.route('/logs', methods=['GET'])
 @api_wrapper(
-    request_param={
-        '*page': ParamDefine(int, '页码'),
-        '*size': ParamDefine(int, '每页数量'),
-        'sort': ParamDefine(List[str], '排序字段', default=['-created_at']),
-        'ip': ParamDefine(str, 'IP'),
-        'account': ParamDefine(str, '账号'),
-        'username': ParamDefine(str, '用户名'),
-        'method': ParamDefine(List[str], '请求类型'),
-        'status': ParamDefine(List[int], '状态码'),
-        'created_at_start': ParamDefine(datetime),
-        'created_at_end': ParamDefine(datetime),
-    },
+    request_param=PaginateRequestSchema({
+        'sort': ParamDefine(List[str], False, '排序字段', default=['-created_at']),
+        'ip': ParamDefine(str, False, 'IP'),
+        'account': ParamDefine(str, False, '账号'),
+        'username': ParamDefine(str, False, '用户名'),
+        'method': ParamDefine(List[str], False, '请求类型'),
+        'status': ParamDefine(List[int], False, '状态码'),
+        'created_at_start': ParamDefine(datetime, False),
+        'created_at_end': ParamDefine(datetime, False),
+    }),
     response_param={
-        RespEnum.OK: ParamDefine({
-            '*total': ParamDefine(int),
-            '*data': ParamDefine(List[ParamDefine({
-                '*account': ParamDefine(str, '账号'),
-                '*username': ParamDefine(str, '用户名'),
-                '*created_at': ParamDefine(datetime, '发生时间'),
-                '*method': ParamDefine(MethodEnum, '请求类型'),
-                '*blueprint': ParamDefine(str, '业务模块'),
-                '*uri': ParamDefine(str, '接口路径'),
-                '*status': ParamDefine(int, '响应状态'),
-                '*duration': ParamDefine(int, '响应耗时'),
-                '*source_ip': ParamDefine(str, '源IP'),
-            })]),
-        }),
+        RespEnum.OK: PaginateResponseSchema(ParamDefine({
+            'account': ParamDefine(str, True, '账号'),
+            'username': ParamDefine(str, True, '用户名'),
+            'created_at': ParamDefine(datetime, True, '发生时间'),
+            'method': ParamDefine(MethodEnum, True, '请求类型'),
+            'blueprint': ParamDefine(str, True, '业务模块'),
+            'uri': ParamDefine(str, True, '接口路径'),
+            'status': ParamDefine(int, True, '响应状态'),
+            'duration': ParamDefine(int, True, '响应耗时'),
+            'source_ip': ParamDefine(str, True, '源IP'),
+        }, True)),
     },
     permission={RoleEnum.Admin}
 )

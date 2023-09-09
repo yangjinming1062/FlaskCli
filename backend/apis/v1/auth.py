@@ -5,6 +5,7 @@ from flask_jwt_extended import create_refresh_token
 from flask_jwt_extended import get_jwt_identity
 from flask_jwt_extended import jwt_required
 
+from . import *
 from ..api import *
 
 bp = get_blueprint(__name__, '鉴权登陆')
@@ -12,19 +13,19 @@ bp = get_blueprint(__name__, '鉴权登陆')
 
 @bp.route('/login', methods=['POST'])
 @api_wrapper(
-    request_param={
-        '*account': ParamDefine(str, '账号'),
-        '*password': ParamDefine(str, '密码'),
-        '*random': ParamDefine(str, '生成验证码的随机数'),
-        '*captcha': ParamDefine(str, '验证码')
-    },
+    request_param=ParamDefine({
+        'account': ParamDefine(str, True, '账号'),
+        'password': ParamDefine(str, True, '密码'),
+        'random': ParamDefine(str, True, '生成验证码的随机数'),
+        'captcha': ParamDefine(str, True, '验证码')
+    }, True),
     response_param={
         RespEnum.OK: ParamDefine({
-            '*username': ParamDefine(str),
-            '*role': ParamDefine(RoleEnum),
-            '*access_token': ParamDefine(str),
-            '*refresh_token': ParamDefine(str),
-        }),
+            'username': ParamDefine(str, True),
+            'role': ParamDefine(RoleEnum, True),
+            'access_token': ParamDefine(str, True),
+            'refresh_token': ParamDefine(str, True),
+        }, True),
     },
 )
 def post_login(**kwargs):
@@ -47,15 +48,13 @@ def post_login(**kwargs):
 
 @bp.route('/captcha', methods=['GET'])
 @api_wrapper(
-    request_param={
-        '*random': ParamDefine(str, '随机数'),
-    },
+    request_param=ParamDefine({
+        'random': ParamDefine(str, True, '随机数'),
+    }, True),
     response_param={
-        RespEnum.OK: ParamDefine(Any, '返回Content-Type为image/png的图片数据')
+        RespEnum.OK: ParamDefine(Any, True, '返回Content-Type为image/png的图片数据')
     },
-    response_header={
-        'Content-Type': 'image/png'
-    }
+    response_header=ParamDefine({'Content-Type': 'image/png'})
 )
 def get_captcha(**kwargs):
     """
@@ -72,8 +71,9 @@ def get_captcha(**kwargs):
 @jwt_required(refresh=True)
 @api_wrapper(
     response_param={
-        RespEnum.OK: ParamDefine({'*access_token': ParamDefine(str)})
+        RespEnum.OK: ParamDefine({'access_token': ParamDefine(str, True)})
     },
+    response_header=TextPlainSchema(),
 )
 def post_refresh(**kwargs):
     """

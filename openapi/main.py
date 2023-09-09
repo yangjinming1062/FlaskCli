@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import EnumMeta
+from typing import Union
 
 from sqlalchemy import Boolean
 from sqlalchemy import DateTime
@@ -11,6 +12,7 @@ from sqlalchemy.orm import ColumnProperty
 from sqlalchemy.orm import Relationship
 
 from apis.api import ParamDefine
+from apis.api import ParamSchema
 from backend.main import app
 from defines import *
 from schemas import *
@@ -32,10 +34,7 @@ def get_apispec(data, info: OpenApiInfo) -> OpenApiDefine:
         OpenApiDefine
     """
     # 根据数据的不同选择不同的处理方式
-    if isinstance(data, list):
-        function = _from_data
-    else:
-        function = _from_app
+    function = _from_app
     return function(data, info)
 
 
@@ -91,7 +90,9 @@ def _from_app(app, info):
         """
         将参数定义转换成openapi的参数
         """
-        # 1.先判断传进来的是ParamDefine还是直接的类型
+        # 1.先判断传进来的param的类型
+        if ParamSchema.is_schema(param):
+            param = param.define
         t = param.type if isinstance(param, ParamDefine) else param
         # 2.类型判断
         if str(t).startswith('typing.List'):
@@ -100,8 +101,10 @@ def _from_app(app, info):
         elif isinstance(t, dict):
             tmp = OpenApiSchema(type='object', properties={}, required=[])
             for k, v in t.items():
-                if k.startswith('*'):
-                    k = k[1:]
+                if ParamSchema.is_schema(v):
+                    v = v.define
+                assert isinstance(v, ParamDefine)
+                if v.required:
                     tmp.required.append(k)
                 tmp.properties[k] = _get_schema(v)
         elif isinstance(t, ModelTemplate):
@@ -132,23 +135,25 @@ def _from_app(app, info):
         """
         生成OpenApiRequestBody和OpenApiResponse的content
         """
-        if header and 'Content-Type' in header:
-            key = header['Content-Type']
-        else:
-            key = 'application/json'
+        key = 'application/json'
+        if header:
+            if ParamSchema.is_schema(header):
+                header = header.define
+            if 'Content-Type' in header.type:
+                key = header.type['Content-Type']
         return {key: OpenApiMediaType(schema=_get_schema(data or {}))}
 
-    def _get_parameters(data, in_='query'):
+    def _get_parameters(data: Union[ParamDefine, ParamSchema], in_='query'):
         """
         生成OpenApiParameter
         """
-        for k, v in data.items():
-            required = False
-            # 1. 判断是否为必填参数
-            if k.startswith('*'):
-                required = True
-                k = k[1:]
-            param = OpenApiParameter(k, in_, required=required, schema=_get_schema(v))
+        if ParamSchema.is_schema(data):
+            data = data.define
+        for k, v in data.type.items():
+            if ParamSchema.is_schema(v):
+                v = v.define
+            assert isinstance(v, ParamDefine)
+            param = OpenApiParameter(k, in_, required=v.required, schema=_get_schema(v))
             # 添加注释
             if v.comment:
                 param.description = v.comment
@@ -224,21 +229,6 @@ def _from_app(app, info):
             tag = rule.endpoint.split('.')[0]
             setattr(path, method.lower(), _parser_api(endpoint_dict[rule.endpoint]))
     return apispec
-
-
-def _from_data(data, info):
-    """
-    通过指定API定义数据生成接口文档
-    Args:
-        data: API定义列表
-        info: OpenApiInfo
-
-    Returns:
-        OpenApiDefine
-    """
-    result = OpenApiDefine(info)
-    # TODO
-    return result
 
 
 if __name__ == '__main__':
