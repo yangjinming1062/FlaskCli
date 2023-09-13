@@ -118,7 +118,7 @@ class Kafka(metaclass=Singleton):
         """
 
         producer = self.get_producer(topic)
-        producer.produce(topic=topic, value=json.dumps(data), callback=self.delivery_report)
+        producer.produce(topic=topic, value=json.dumps(data, cls=JSONExtensionEncoder), callback=self.delivery_report)
         producer.poll(0)
 
 

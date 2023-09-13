@@ -18,4 +18,4 @@ RUN mv migrations migrations_init
 EXPOSE 5000
 
 # 单独只启动后端接口服务
-CMD ["gunicorn", "main:app", "-c", "./run.py"]
+CMD ["python", "./start.py"]

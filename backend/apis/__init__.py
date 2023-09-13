@@ -16,4 +16,4 @@ for name in glob(os.path.dirname(__file__) + '/*/*.??'):
 Blueprints = [module for name, module in globals().items() if name.endswith('_bp') and isinstance(module, Blueprint)]
 
 # 无需进行鉴权的接口的正则表达式
-SKIP_AUTH_REGEX = re.compile(r'^/api/v1/auth')
+SKIP_AUTH_REGEX = re.compile(r'^/apis/v1/auth')

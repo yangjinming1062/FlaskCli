@@ -5,15 +5,15 @@ Author      : jinming.yang
 Description : 程序的入口位置，通过该文件启动app程序
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
-from time import time
-from uuid import uuid4
+import asyncio
 
 from flask import Flask
-from flask import Response
 from flask_cors import CORS  # 解决前后端联调的跨域问题
 from flask_jwt_extended import JWTManager
 from flask_jwt_extended import get_jwt_identity
 from flask_jwt_extended import verify_jwt_in_request
+from hypercorn.asyncio import serve
+from hypercorn.config import Config
 from werkzeug.exceptions import MethodNotAllowed
 from werkzeug.exceptions import NotFound
 
@@ -73,43 +73,6 @@ def register_handler(flask_app):
             logger.exception(ex)
             return response(RespEnum.UnAuthorized)
 
-    @flask_app.after_request
-    def log_record(resp: Response):
-        """
-        接口进行响应后的钩子函数：进行日志的记录
-        Args:
-            resp: 接口的响应
-
-        Returns:
-            None
-        """
-        try:
-            _ = verify_jwt_in_request()
-            sql = insert(ApiRequestLogs).values({
-                'id': str(uuid4()),
-                'user_id': get_jwt_identity(),
-                'created_at': datetime.fromtimestamp(int(time())),
-                'method': request.method,
-                'blueprint': request.blueprint,
-                'uri': request.path,
-                'status': resp.status_code,
-                'duration': int((time() - request.started_at) * 1000),
-                'source_ip': request.remote_addr,
-            })
-            execute_sql(sql)
-            # log = ApiRequestLogs()
-            # log.user_id = get_jwt_identity()
-            # log.created_at = int(time())
-            # log.method = request.method
-            # log.blueprint = request.blueprint
-            # log.uri = request.path
-            # log.status = resp.status_code
-            # log.duration = int((time() - request.started_at) * 1000)
-            # log.source_ip = request.remote_addr
-            # kafka.produce(Constants.Topic_ReqLogs, log.json())  # WARNING！！！ 频率低就直接flush，频率高避免性能影响可以单独开一个线程定时flush
-        finally:
-            return resp
-
     @flask_app.errorhandler(NotFound)
     def handle_path_error(_):
         logger.debug(f'未定义的地址：{request.base_url}')
@@ -121,6 +84,8 @@ def register_handler(flask_app):
         return response(RespEnum.MethodNotFound)
 
 
-app = create_app()
 if __name__ == '__main__':  # Debug时使用该方法
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    app_config = Config()
+    app_config.bind = ["0.0.0.0:5000"]
+
+    asyncio.run(serve(create_app(), app_config))  # 启动服务器

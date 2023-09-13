@@ -9,10 +9,12 @@ import json
 from datetime import datetime
 from functools import partial
 from functools import wraps
+from time import time
 from typing import Any
 from typing import Dict
 from typing import Iterable
 from typing import Union
+from uuid import uuid4
 
 from clickhouse_driver import Client
 from flask import Blueprint
@@ -140,6 +142,20 @@ def response(base_response: RespEnum, data=None, headers=None):
         if ParamSchema.is_schema(headers):
             headers = headers.define
         resp.headers.update(headers.type)
+    if request.uid:
+        # 记录访问日志，也可以把匿名访问都记录上，看需求
+        sql = insert(ApiRequestLogs).values({
+            'id': str(uuid4()),
+            'user_id': request.uid,
+            'created_at': datetime.now(),
+            'method': request.method,
+            'blueprint': request.blueprint,
+            'uri': request.path,
+            'status': resp.status_code,
+            'duration': int((time() - request.started_at) * 1000),
+            'source_ip': request.remote_addr,
+        })
+        execute_sql(sql)
     return resp
 
 
@@ -243,7 +259,7 @@ def api_wrapper(
         if ParamSchema.is_schema(define):
             define = define.define
         if not isinstance(source, dict):
-            raise Exception(RespEnum.ParamsMissed)
+            raise APIException(RespEnum.ParamsMissed)
         result = {}
         assert isinstance(define.type, dict)
         for field_name, field_define in define.type.items():
@@ -251,7 +267,7 @@ def api_wrapper(
             assert isinstance(field_define, ParamDefine)
             # 2. 判断是否为必填参数
             if field_define.required and field_name not in source:
-                raise Exception(RespEnum.ParamsMissed)
+                raise APIException(RespEnum.ParamsMissed)
             # 3. 判断非必填的参数是否存在
             if field_name in source:
                 # 从这里开始需要对各种类型的参数进行处理
@@ -269,7 +285,7 @@ def api_wrapper(
                             result[field_name] = list(map(partial(_req_value, inner_type), source[field_name]))
                     else:
                         # 如果入参不是数组则提示参数错误
-                        raise Exception(RespEnum.ParamsValueError)
+                        raise APIException(RespEnum.ParamsValueError)
                 # 3.2 Dict意味着允许传递对象类型的参数，但是具体有哪些key未作限定
                 elif str_type.startswith('typing.Dict'):
                     # TODO： 这里面再嵌套ParamDefine可能需要再完善，但是需要typing.Dict的基本都是动态定义，应该情况极少
@@ -302,10 +318,10 @@ def api_wrapper(
                     except:
                         if hasattr(field_define, 'resp'):
                             # 参数定义的时候定义了校验不通过的响应则优先使用定义的（主要是满足不同的参数校验需要给出不同提示的场景）
-                            raise Exception(field_define.resp)
+                            raise APIException(field_define.resp)
                         else:
                             # 没有提供特定的响应则使用默认的
-                            raise Exception(RespEnum.ParamsRangeError)
+                            raise APIException(RespEnum.ParamsRangeError)
             else:
                 # 3.1 没传参数则看看有没有默认值
                 if hasattr(field_define, 'default'):
@@ -329,21 +345,23 @@ def api_wrapper(
         if define.type is None:
             # 接口不需要响应数据
             return None
+        if define.type is Any:
+            return source
         # 1 嵌套结构
         if isinstance(define.type, dict):
             result = {}
             for field_name, field_define in define.type.items():
+                tmp = None
                 if ParamSchema.is_schema(field_define):
                     field_define = field_define.define
                 if isinstance(source, (Row, ModelTemplate)):
                     # 如果是查询数据库获得的实例对象则递归处理
-                    tmp = _resp_params(field_define, getattr(source, field_define.key or field_name), language)
+                    if field_define.required or hasattr(source, field_define.key or field_name):
+                        tmp = _resp_params(field_define, getattr(source, field_define.key or field_name), language)
                 elif isinstance(source, dict):
                     # 也是递归，但dict类型是.get，上面是getattr
-                    tmp = _resp_params(field_define, source.get(field_define.key or field_name, None), language)
-                else:
-                    # 定义要求是个dict类型但是接口的响应既不是实例也不是dict那就只能是按None进行返回了
-                    tmp = None
+                    if field_define.required or (field_define.key or field_name in source):
+                        tmp = _resp_params(field_define, source[field_define.key or field_name], language)
                 if field_define.required or tmp:
                     # 必填参数或者可选参数也有数据则进行赋值
                     result[field_name] = tmp
@@ -426,10 +444,7 @@ def api_wrapper(
             except Exception as ex:
                 kwargs['oltp_session'].rollback()
                 logger.exception(ex)
-                if isinstance(ex.args[0], RespEnum):
-                    return response(ex.args[0], headers=response_header)
-                else:
-                    return response(RespEnum.Error, headers=response_header)
+                return response(RespEnum.Error, headers=response_header)
             finally:
                 kwargs['olap_session'].disconnect()
                 kwargs['oltp_session'].commit()
@@ -450,6 +465,7 @@ def orm_create(cls, params: dict, repeat_resp=RespEnum.KeyRepeat):
     Returns:
         新增数据的ID
     """
+    params['updated_at'] = datetime.now()
     _params = {k: v for k, v in params.items() if k in cls.get_columns()}
     result, flag = execute_sql(insert(cls).values(**_params))
     if flag:
@@ -475,6 +491,7 @@ def orm_update(cls, resource_id: str, params: dict, error_resp=RespEnum.InvalidI
     """
     if not params:
         raise APIException(RespEnum.ParamsMissed)
+    params['updated_at'] = datetime.now()
     _params = {k: v for k, v in params.items() if k in cls.get_columns()}
     result, flag = execute_sql(update(cls).where(cls.id == resource_id).values(**_params))
     if flag and not result:

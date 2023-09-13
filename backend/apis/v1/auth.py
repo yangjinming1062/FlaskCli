@@ -5,7 +5,6 @@ from flask_jwt_extended import create_refresh_token
 from flask_jwt_extended import get_jwt_identity
 from flask_jwt_extended import jwt_required
 
-from . import *
 from ..api import *
 
 bp = get_blueprint(__name__, '鉴权登陆')
@@ -73,7 +72,6 @@ def get_captcha(**kwargs):
     response_param={
         RespEnum.OK: ParamDefine({'access_token': ParamDefine(str, True)})
     },
-    response_header=TextPlainSchema(),
 )
 def post_refresh(**kwargs):
     """

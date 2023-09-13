@@ -55,7 +55,7 @@ def get_users(**kwargs):
         'email': ParamDefine(str, True, '邮箱', valid=User.valid_email, resp=RespEnum.InvalidEmail),
     }, True),
     response_param={
-        RespEnum.Created: ParamDefine(str, True, '用户ID'),
+        RespEnum.Created: CreatedSchema(),
     },
     response_header=TextPlainSchema(),
     permission={RoleEnum.Admin}

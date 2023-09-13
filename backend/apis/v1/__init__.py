@@ -14,6 +14,10 @@ class TextPlainSchema(ParamSchema):
     define = ParamDefine({'Content-Type': 'text/plain'})
 
 
+class CreatedSchema(ParamSchema):
+    define = ParamDefine(str, True)
+
+
 class PaginateRequestSchema(ParamSchema):
     """
     分页类请求共同参数定义

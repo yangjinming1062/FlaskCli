@@ -51,13 +51,9 @@ services:
       context: ./
       dockerfile: ./backend/Dockerfile
     env_file: ./docker.env
-    volumes:
-      - ./migrations:/opt/flask/migrations
-      - ./logs:/opt/flask/logs
+#    volumes:
+#      - ./migrations:/opt/flask/migrations
+#      - ./logs:/opt/flask/logs
     ports:
       - "5000:5000"
-    depends_on:
-      - olap
-      - oltp
-      - redis
-    command: "/bin/bash -c 'source ./initDB.sh && gunicorn main:app -c ./run.py'"
+    command: "/bin/bash -c 'source ./initDB.sh && python ./start.py'"

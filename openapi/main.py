@@ -13,7 +13,7 @@ from sqlalchemy.orm import Relationship
 
 from apis.api import ParamDefine
 from apis.api import ParamSchema
-from backend.main import app
+from backend.start import create_app
 from defines import *
 from schemas import *
 
@@ -232,5 +232,5 @@ def _from_app(app, info):
 
 
 if __name__ == '__main__':
-    api = get_apispec(app, OpenApiInfo('flaskcli', 'mvp'))
+    api = get_apispec(create_app(), OpenApiInfo('flaskcli', 'mvp'))
     doc = api.to_file('schema.json')
