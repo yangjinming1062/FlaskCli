@@ -7,7 +7,6 @@ Description : 基础方法的定义实现
 """
 import uuid
 from functools import wraps
-from typing import Union
 
 from clickhouse_driver import Client
 from sqlalchemy.exc import IntegrityError
@@ -155,67 +154,3 @@ def generate_key(source: str = None):
     else:
         tmp = uuid.uuid4()
     return tmp.hex[-12:]
-
-
-@exceptions()
-def to_dict(obj) -> Union[dict, list]:
-    """
-    类对象转成字典
-    Args:
-        obj: 待转换类对象，自定义数据类型
-
-    Returns:
-        可序列化的对象
-    """
-
-    def is_simple_data(for_check) -> bool:
-        """
-        判断是否是系统内置的简单类型
-        Args:
-            for_check: 待检查的对象
-
-        Returns:
-            是否是内置类型
-        """
-        return not hasattr(for_check, '__dict__') and not hasattr(for_check, '__slots__')
-
-    if obj:
-        if isinstance(obj, list):
-            return [to_dict(item) for item in obj]
-        elif isinstance(obj, dict):
-            return obj  # 如果已经是基础的字典机构了就不用再转换了
-        elif is_simple_data(obj):
-            return obj
-        else:
-            if hasattr(obj, '__slots__'):
-                return {name: to_dict(getattr(obj, name, None)) for name in obj.__slots__}
-            elif hasattr(obj, '__dict__'):
-                return {name: to_dict(getattr(obj, name, None)) for name in obj.__dict__}
-
-
-@exceptions()
-def to_obj(js_obj):
-    """
-    将序列化数据变成数据实例
-    Args:
-        js_obj: JSON反序列化回来的list或者dict等基础数据类型
-
-    Returns:
-        根据json内容动态决定属性内容的实例对象
-    """
-
-    class CustomObject:
-        def get(self, name, default=None):
-            return getattr(self, name, default)
-
-    if js_obj is None:
-        return None
-    elif isinstance(js_obj, list):
-        result = [to_obj(x) for x in js_obj]
-    elif isinstance(js_obj, dict):
-        result = CustomObject()
-        for key in js_obj.keys():
-            setattr(result, key, to_obj(js_obj[key]))
-    else:
-        return js_obj
-    return result

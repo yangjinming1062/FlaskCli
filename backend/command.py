@@ -2,7 +2,6 @@
 Usage:
     command.py user [--account=<admin>] [--username=<username>] [--password=<password>]
     command.py init
-    command.py kafka
     command.py -h | --help
 Options:
     --account=<admin>            初始账号 [default: admin]
@@ -10,11 +9,8 @@ Options:
     --password=<password>        初始用户密码 [default: m/W*0-nS0t5]
 """
 from docopt import docopt
-from sqlalchemy.orm import Session
 
-from defines import *
 from utils import exceptions
-from utils import generate_key
 
 
 @exceptions()
@@ -24,21 +20,7 @@ def init_user(account, username, password):
     Returns:
 
     """
-    with Session(OLTPEngine) as session:
-        uid = generate_key(account)  # 保证多环境管理员的id一致
-        if user := session.get(User, uid):
-            user.password = User.generate_hash(password)
-        else:
-            user = User()
-            user.id = uid
-            user.account = account
-            user.username = username
-            user.password = User.generate_hash(password)
-            user.role = RoleEnum.Admin
-            user.phone = '-'
-            user.email = '-'
-            session.add(user)
-        session.commit()
+    pass
 
 
 def init_database():

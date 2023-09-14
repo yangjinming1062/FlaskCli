@@ -1,4 +1,3 @@
-import re
 from glob import glob
 
 from .common import *
@@ -14,6 +13,3 @@ for name in glob(os.path.dirname(__file__) + '/*/*.??'):
 
 # Blueprints用于在创建app时动态注册蓝图
 Blueprints = [module for name, module in globals().items() if name.endswith('_bp') and isinstance(module, Blueprint)]
-
-# 无需进行鉴权的接口的正则表达式
-SKIP_AUTH_REGEX = re.compile(r'^/apis/v1/auth')

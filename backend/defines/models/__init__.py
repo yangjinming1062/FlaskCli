@@ -10,8 +10,6 @@ from .base import OLAPEngine
 from .base import OLAPModelBase
 from .base import OLTPEngine
 from .base import OLTPModelBase
-from .business import User
-from .system import ApiRequestLogs
 
 _base = [
     'ModelTemplate',

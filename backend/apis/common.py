@@ -9,11 +9,9 @@ import json
 from datetime import datetime
 from functools import partial
 from functools import wraps
-from time import time
 from typing import Any
 from typing import Iterable
 from typing import Union
-from uuid import uuid4
 
 from clickhouse_driver import Client
 from flask import Blueprint
@@ -141,20 +139,6 @@ def response(status: int, data=None, headers=None, msg=''):
         if ParamSchema.is_schema(headers):
             headers = headers.define
         resp.headers.update(headers.type)
-    if request.uid:
-        # 记录访问日志，也可以把匿名访问都记录上，看需求
-        sql = insert(ApiRequestLogs).values({
-            'id': str(uuid4()),
-            'user_id': request.uid,
-            'created_at': datetime.now(),
-            'method': request.method,
-            'blueprint': request.blueprint,
-            'uri': request.path,
-            'status': resp.status_code,
-            'duration': int((time() - request.started_at) * 1000),
-            'source_ip': request.remote_addr,
-        })
-        execute_sql(sql)
     return resp
 
 
@@ -164,7 +148,6 @@ def api_wrapper(
         response_param: Union[ParamDefine, ParamSchema] = None,
         response_header: Union[ParamDefine, ParamSchema] = None,
         response_status: int = 200,
-        permission: set = None
 ):
     """
     装饰器：统一处理API响应异常以及必要参数的校验
@@ -174,7 +157,6 @@ def api_wrapper(
         response_param: 当前接口的响应数据结构，用于生成接口文档
         response_header: 响应头，用于生成接口文档
         response_status: 成功响应的状态码，默认是200
-        permission: 接口权限
 
     Returns:
         无异常则返回方法的返回值，异常返回Error
@@ -336,7 +318,6 @@ def api_wrapper(
         Args:
             define: 参数定义
             source: 接口输出
-            language: 语言类型
 
         Returns:
             响应参数
@@ -397,28 +378,16 @@ def api_wrapper(
             kwargs['oltp_session'] = oltp_session_factory()
             kwargs['olap_session'] = Client.from_url(DATABASE_OLAP_URI)
             try:
-                # 1. 接口的鉴权处理：获取登陆的user
-                if request.uid:
-                    # 登录的token还有效，但是token内的uid已经不在来（几乎不存在，但有可能）
-                    user = execute_sql(select(User).where(User.id == request.uid), session=kwargs['oltp_session'])
-                    if not user:
-                        return response(403, headers=response_header, msg='未授权进行该操作')
-                    if permission and user.role not in permission:
-                        return response(403, headers=response_header, msg='未授权进行该操作')
-                else:
-                    user = None
-                kwargs['user_id'] = request.uid
-                kwargs['user'] = user
-                # 2. 请求参数获取
+                # 1. 请求参数获取
                 if request_param:
                     # 定义的请求参数要求
                     kwargs.update(_req_params(request_param, _get_params(), request.method in ('GET', 'DELETE')))
-                # 3. 请求头信息获取
+                # 2. 请求头信息获取
                 if request_header:
                     kwargs.update(_req_params(request_header, {k: v for k, v in request.headers.items()}, False))
-                # 4. API接口调用
+                # 3. API接口调用
                 resp = function(*args, **kwargs)
-                # 5. 接口响应数据处理
+                # 54. 接口响应数据处理
                 if response_param:
                     data = _resp_params(response_param, resp)
                     return response(response_status, data, headers=response_header)

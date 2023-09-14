@@ -5,7 +5,9 @@ Author      : jinming.yang
 Description : 在__init__.py中统一导入
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
-from .system import *
+from enum import Enum
+
+# from .system import *
 
 _base = ['Enum', ]
 _enums = [name for name, module in locals().items() if name.endswith('Enum') and issubclass(module, Enum)]

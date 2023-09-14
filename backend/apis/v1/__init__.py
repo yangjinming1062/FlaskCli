@@ -7,13 +7,6 @@ from ..common import ParamDefine
 from ..common import ParamSchema
 
 
-class TextPlainSchema(ParamSchema):
-    """
-    text/plain类响应头
-    """
-    define = ParamDefine({'Content-Type': 'text/plain'})
-
-
 class CreatedSchema(ParamSchema):
     define = ParamDefine(str, True)
 

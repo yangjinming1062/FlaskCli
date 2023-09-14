@@ -14,10 +14,10 @@ from uuid import uuid4
 
 from clickhouse_driver import Client
 from sqlalchemy import DateTime
+from sqlalchemy import JSON
 from sqlalchemy import String
 from sqlalchemy import create_engine
 from sqlalchemy import func
-from sqlalchemy import JSON
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
@@ -104,7 +104,7 @@ class OLAPModelBase(DeclarativeBase, ModelTemplate):
     """
     __abstract__ = True
 
-    id: Mapped[str_id] = mapped_column(primary_key=True, default=lambda: uuid4(), comment='主键')
+    # id: Mapped[str_id] = mapped_column(primary_key=True, default=lambda: uuid4(), comment='主键')
 
 
 class TimeColumns:

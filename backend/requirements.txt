@@ -1,6 +1,4 @@
 Flask==2.3.2
-Flask-Cors==3.0.10
-flask_jwt_extended==4.5.2
 Werkzeug==2.3.6
 hypercorn==0.14.4
 # DB
@@ -14,5 +12,3 @@ confluent-kafka==2.1.1
 requests==2.31.0
 docopt==0.6.2
 loguru==0.7.0
-supervisor==4.2.5
-pillow==10.0.0
