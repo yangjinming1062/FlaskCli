@@ -1,8 +1,8 @@
 """
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-File Name   : api.py
+File Name   : common.py
 Author      : jinming.yang
-Description : API接口用到的工具方法实现
+Description : API接口会共用到的一些类、方法的定义实现
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
 import json
@@ -11,7 +11,6 @@ from functools import partial
 from functools import wraps
 from time import time
 from typing import Any
-from typing import Dict
 from typing import Iterable
 from typing import Union
 from uuid import uuid4
@@ -36,7 +35,16 @@ from defines import *
 from utils import *
 
 oltp_session_factory = scoped_session(sessionmaker(bind=OLTPEngine))
-_SUCCESSFUL_RESP = [RespEnum.OK, RespEnum.Created, RespEnum.Accepted]
+
+
+class APIErrorResponse(Exception):
+    """
+    API接口进行非正常状态的响应
+    """
+
+    def __init__(self, status: int, msg: str = None):
+        self.status = status
+        self.msg = msg
 
 
 class ParamDefine:
@@ -49,7 +57,7 @@ class ParamDefine:
     comment: str
     default: Any
     valid: Any
-    resp: RespEnum
+    resp: APIErrorResponse
 
     def __init__(self, type_, required: bool = False, comment: str = '', **kwargs):
         """
@@ -79,6 +87,7 @@ class ParamDefine:
 class ParamSchema:
     """
     接口参数定义
+    只使用define属性，本质上就是把ParamDefine套了一层壳方便共享定义
     """
     define: ParamDefine
 
@@ -98,15 +107,6 @@ class ParamSchema:
             return type(value) is type and issubclass(value, ParamSchema)
 
 
-class APIException(Exception):
-    """
-    异常响应
-    """
-
-    def __init__(self, resp: RespEnum):
-        self.resp = resp
-
-
 def get_blueprint(path, name):
     """
     生成API的蓝图：方便统一调整
@@ -115,22 +115,21 @@ def get_blueprint(path, name):
     return Blueprint(name, __name__, url_prefix=url_prefix)
 
 
-def response(base_response: RespEnum, data=None, headers=None):
+def response(status: int, data=None, headers=None, msg=''):
     """
     统一的API响应方法
     Args:
-        base_response: 基础响应信息，本次API响应状态
+        status: HTTP响应状态码
         data: 响应内容，默认为None
         headers: 响应头
+        msg: 错误消息
 
     Returns:
         Response
     """
-    status, msg = base_response.value
     if data is None:
         resp = make_response(json.dumps({
-            'code': base_response.name,
-            'message': msg
+            'message': msg,
         }), status)
     else:
         if isinstance(data, (list, dict)):
@@ -162,17 +161,19 @@ def response(base_response: RespEnum, data=None, headers=None):
 def api_wrapper(
         request_header: Union[ParamDefine, ParamSchema] = None,
         request_param: Union[ParamDefine, ParamSchema] = None,
-        response_param: Dict[RespEnum, Union[ParamDefine, ParamSchema]] = None,
+        response_param: Union[ParamDefine, ParamSchema] = None,
         response_header: Union[ParamDefine, ParamSchema] = None,
+        response_status: int = 200,
         permission: set = None
 ):
     """
     装饰器：统一处理API响应异常以及必要参数的校验
     Args:
         request_header: 请求头中的参数
-        request_param: 当前接口包含的字段
+        request_param: 当前接口包含的字段（参数位置取决于请求类型，按照HTTP规范GET、DELETE在query中，其他取的json格式的body）
         response_param: 当前接口的响应数据结构，用于生成接口文档
         response_header: 响应头，用于生成接口文档
+        response_status: 成功响应的状态码，默认是200
         permission: 接口权限
 
     Returns:
@@ -218,6 +219,7 @@ def api_wrapper(
             # model定义
             return define(**value)
         elif issubclass(define, Enum):
+            # 枚举类型既支持传name也支持传value
             tmp = {x.name: x for x in list(define)}
             if value in tmp:
                 # 按照枚举的Key去匹配
@@ -229,13 +231,12 @@ def api_wrapper(
             # 其他类型
             return define(value)
 
-    def _resp_value(define: ParamDefine, value, language):
+    def _resp_value(define: ParamDefine, value):
         """
         输出参数的校验及特殊类型的序列化
         Args:
             define: 参数定义
             value: 传入值
-            language: 语言类型，可以在这里根据不同语言切换不同的处理
 
         Returns:
             处理后的参数
@@ -259,7 +260,7 @@ def api_wrapper(
         if ParamSchema.is_schema(define):
             define = define.define
         if not isinstance(source, dict):
-            raise APIException(RespEnum.ParamsMissed)
+            raise APIErrorResponse(422, '参数类型不正确')
         result = {}
         assert isinstance(define.type, dict)
         for field_name, field_define in define.type.items():
@@ -267,7 +268,7 @@ def api_wrapper(
             assert isinstance(field_define, ParamDefine)
             # 2. 判断是否为必填参数
             if field_define.required and field_name not in source:
-                raise APIException(RespEnum.ParamsMissed)
+                raise APIErrorResponse(422, '缺少必填参数')
             # 3. 判断非必填的参数是否存在
             if field_name in source:
                 # 从这里开始需要对各种类型的参数进行处理
@@ -285,7 +286,7 @@ def api_wrapper(
                             result[field_name] = list(map(partial(_req_value, inner_type), source[field_name]))
                     else:
                         # 如果入参不是数组则提示参数错误
-                        raise APIException(RespEnum.ParamsValueError)
+                        raise APIErrorResponse(422, '参数类型错误')
                 # 3.2 Dict意味着允许传递对象类型的参数，但是具体有哪些key未作限定
                 elif str_type.startswith('typing.Dict'):
                     # TODO： 这里面再嵌套ParamDefine可能需要再完善，但是需要typing.Dict的基本都是动态定义，应该情况极少
@@ -318,10 +319,10 @@ def api_wrapper(
                     except:
                         if hasattr(field_define, 'resp'):
                             # 参数定义的时候定义了校验不通过的响应则优先使用定义的（主要是满足不同的参数校验需要给出不同提示的场景）
-                            raise APIException(field_define.resp)
+                            raise APIErrorResponse(field_define.resp)
                         else:
                             # 没有提供特定的响应则使用默认的
-                            raise APIException(RespEnum.ParamsRangeError)
+                            raise APIErrorResponse(422, '参数范围错误')
             else:
                 # 3.1 没传参数则看看有没有默认值
                 if hasattr(field_define, 'default'):
@@ -329,7 +330,7 @@ def api_wrapper(
                     continue
         return result
 
-    def _resp_params(define: Union[ParamDefine, ParamSchema], source, language: LanguageEnum):
+    def _resp_params(define: Union[ParamDefine, ParamSchema], source):
         """
         根据参数定义生成响应参数
         Args:
@@ -357,11 +358,11 @@ def api_wrapper(
                 if isinstance(source, (Row, ModelTemplate)):
                     # 如果是查询数据库获得的实例对象则递归处理
                     if field_define.required or hasattr(source, field_define.key or field_name):
-                        tmp = _resp_params(field_define, getattr(source, field_define.key or field_name), language)
+                        tmp = _resp_params(field_define, getattr(source, field_define.key or field_name))
                 elif isinstance(source, dict):
                     # 也是递归，但dict类型是.get，上面是getattr
                     if field_define.required or (field_define.key or field_name in source):
-                        tmp = _resp_params(field_define, source[field_define.key or field_name], language)
+                        tmp = _resp_params(field_define, source[field_define.key or field_name])
                 if field_define.required or tmp:
                     # 必填参数或者可选参数也有数据则进行赋值
                     result[field_name] = tmp
@@ -372,22 +373,23 @@ def api_wrapper(
                 inner_type = define.type.__args__[0]
                 # 这里为什么分开处理见_req_params的List嵌套的处理注释
                 if isinstance(inner_type, ParamDefine):
-                    return [_resp_params(inner_type, row, language) for row in source]
+                    return [_resp_params(inner_type, row) for row in source]
                 else:
-                    return list(map(partial(_resp_value, define, language=language), source))
+                    return list(map(partial(_resp_value, define), source))
             else:
                 logger.debug(source, 'data is not a list')
                 return []
         # 3 其他常规情况
         else:
-            return _resp_value(define, source, language)
+            return _resp_value(define, source)
 
     def decorator(function):
         function.__apispec__ = {
             'request_param': request_param,
             'response_param': response_param,
             'request_header': request_header,
-            'response_header': response_header
+            'response_header': response_header,
+            'response_status': response_status,
         }
 
         @wraps(function)
@@ -400,9 +402,9 @@ def api_wrapper(
                     # 登录的token还有效，但是token内的uid已经不在来（几乎不存在，但有可能）
                     user = execute_sql(select(User).where(User.id == request.uid), session=kwargs['oltp_session'])
                     if not user:
-                        return response(RespEnum.Forbidden, headers=response_header)
+                        return response(403, headers=response_header, msg='未授权进行该操作')
                     if permission and user.role not in permission:
-                        return response(RespEnum.Forbidden, headers=response_header)
+                        return response(403, headers=response_header, msg='未授权进行该操作')
                 else:
                     user = None
                 kwargs['user_id'] = request.uid
@@ -418,33 +420,30 @@ def api_wrapper(
                 resp = function(*args, **kwargs)
                 # 5. 接口响应数据处理
                 if response_param:
-                    language = kwargs.get('Accept-Language', LanguageEnum.ZH)
-                    for key in _SUCCESSFUL_RESP:
-                        if key in response_param:
-                            data = _resp_params(response_param[key], resp, language)
-                            return response(key, data, headers=response_header)
+                    data = _resp_params(response_param, resp)
+                    return response(response_status, data, headers=response_header)
                 else:
                     # 只要接口正常运行完了就是成功，没数据就返回204
-                    return response(RespEnum.NoContent, headers=response_header)
-            except APIException as ex:
+                    return response(204, headers=response_header)
+            except APIErrorResponse as ex:
                 # 接口非正常响应时返回异常状态
-                return response(ex.resp, headers=response_header)
+                return response(ex.status, headers=response_header, msg=ex.msg)
             except AssertionError as ex:
                 kwargs['oltp_session'].rollback()
                 logger.debug(ex)
-                return response(RespEnum.InvalidInput, headers=response_header)
+                return response(422, headers=response_header, msg='无效输入')
             except KeyError as ex:
                 kwargs['oltp_session'].rollback()
                 logger.debug(ex)
-                return response(RespEnum.ParamsMissed, headers=response_header)
+                return response(422, headers=response_header, msg='缺少必填参数')
             except ValueError as ex:
                 kwargs['oltp_session'].rollback()
                 logger.debug(ex)
-                return response(RespEnum.ParamsValueError, headers=response_header)
+                return response(422, headers=response_header, msg='参数类型错误')
             except Exception as ex:
                 kwargs['oltp_session'].rollback()
                 logger.exception(ex)
-                return response(RespEnum.Error, headers=response_header)
+                return response(500, headers=response_header, msg='服务端响应失败')
             finally:
                 kwargs['olap_session'].disconnect()
                 kwargs['oltp_session'].commit()
@@ -454,13 +453,13 @@ def api_wrapper(
     return decorator
 
 
-def orm_create(cls, params: dict, repeat_resp=RespEnum.KeyRepeat):
+def orm_create(cls, params: dict, repeat_msg='关键字重复'):
     """
     创建数据实例
     Args:
         cls: ORM类定义
         params: 参数
-        repeat_resp: 新增重复时的响应
+        repeat_msg: 新增重复时的响应
 
     Returns:
         新增数据的ID
@@ -472,32 +471,32 @@ def orm_create(cls, params: dict, repeat_resp=RespEnum.KeyRepeat):
         return result
     else:
         if result.lower().find('duplicate') > 0:
-            raise APIException(repeat_resp)
+            raise APIErrorResponse(422, repeat_msg)
         else:
-            raise APIException(RespEnum.InvalidInput)
+            raise APIErrorResponse(422, '无效输入')
 
 
-def orm_update(cls, resource_id: str, params: dict, error_resp=RespEnum.InvalidInput):
+def orm_update(cls, resource_id: str, params: dict, error_msg='无效输入'):
     """
     ORM数据的更新
     Args:
         cls: ORM类定义
         resource_id: 资源ID
         params: 更新数据
-        error_resp: 更新失败时的响应状态
+        error_msg: 更新失败时的响应状态
 
     Returns:
         None
     """
     if not params:
-        raise APIException(RespEnum.ParamsMissed)
+        raise APIErrorResponse(422, '缺少必填参数')
     params['updated_at'] = datetime.now()
     _params = {k: v for k, v in params.items() if k in cls.get_columns()}
     result, flag = execute_sql(update(cls).where(cls.id == resource_id).values(**_params))
     if flag and not result:
-        raise APIException(RespEnum.NotFound)
+        raise APIErrorResponse(404, '未找到对应资源')
     elif not flag:
-        raise APIException(error_resp)
+        raise APIErrorResponse(422, error_msg)
 
 
 def orm_delete(cls, resource_id: Union[str, list, set]):
@@ -521,7 +520,7 @@ def orm_delete(cls, resource_id: Union[str, list, set]):
     except Exception as ex:
         session.rollback()
         logger.exception(ex)
-        raise APIException(RespEnum.BadRequest)
+        raise APIErrorResponse(400, '请求无效')
     finally:
         session.commit()
 
@@ -564,9 +563,9 @@ def paginate_query(sql, params, scalar=False, format_func=None, session=None):
         total_sql = select(func.count()).select_from(sql)
         total = execute_sql(total_sql, many=False, scalar=True, session=session)
         if params['size'] > 100 or params['size'] < 1:
-            raise APIException(RespEnum.ParamsRangeError)
+            raise APIErrorResponse(422, '分页size取值范围错误，取值范围为1-100')
         if params['page'] < 1:
-            raise APIException(RespEnum.ParamsRangeError)
+            raise APIErrorResponse(422, '分页page参数范围错误')
         sql = sql.limit(params['size']).offset((params['page'] - 1) * params['size'])
         result = {
             'total': total,

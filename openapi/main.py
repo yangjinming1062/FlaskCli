@@ -11,8 +11,8 @@ from sqlalchemy import String
 from sqlalchemy.orm import ColumnProperty
 from sqlalchemy.orm import Relationship
 
-from apis.api import ParamDefine
-from apis.api import ParamSchema
+from apis.common import ParamDefine
+from apis.common import ParamSchema
 from backend.start import create_app
 from defines import *
 from schemas import *
@@ -188,10 +188,9 @@ def _from_app(app, info):
                 operation.requestBody = OpenApiRequestBody(_get_content(req_param, req_header))
         # 4.生成响应参数
         if resp_param := endpoint_func.__apispec__['response_param']:
-            for resp, data in resp_param.items():
-                code, msg = resp.value
-                content = _get_content(data, endpoint_func.__apispec__['response_header'])
-                operation.responses[str(code)] = OpenApiResponse(msg, content=content)
+            content = _get_content(resp_param, endpoint_func.__apispec__['response_header'])
+            code = str(endpoint_func.__apispec__['response_status'])
+            operation.responses[code] = OpenApiResponse('', content=content)
         else:
             operation.responses[str(204)] = OpenApiResponse('无响应数据')
         return operation

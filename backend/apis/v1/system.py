@@ -2,7 +2,7 @@ from sqlalchemy import true
 from sqlalchemy.orm import Session
 
 from . import *
-from ..api import *
+from ..common import *
 
 bp = get_blueprint(__name__, '系统管理')
 
@@ -13,16 +13,14 @@ bp = get_blueprint(__name__, '系统管理')
         'sort': ParamDefine(List[str], False, '排序字段', default=['-updated_at']),
         'keyword': ParamDefine(str, False, '账号/用户名'),
     }),
-    response_param={
-        RespEnum.OK: PaginateResponseSchema(ParamDefine({
-            'id': ParamDefine(str, True, '用户ID'),
-            'account': ParamDefine(str, True, '账号'),
-            'role': ParamDefine(RoleEnum, True, '角色'),
-            'username': ParamDefine(str, True, '用户名'),
-            'phone': ParamDefine(str, True, '手机号'),
-            'email': ParamDefine(str, True, '邮箱'),
-        }, True)),
-    },
+    response_param=PaginateResponseSchema(ParamDefine({
+        'id': ParamDefine(str, True, '用户ID'),
+        'account': ParamDefine(str, True, '账号'),
+        'role': ParamDefine(RoleEnum, True, '角色'),
+        'username': ParamDefine(str, True, '用户名'),
+        'phone': ParamDefine(str, True, '手机号'),
+        'email': ParamDefine(str, True, '邮箱'),
+    }, True)),
     permission={RoleEnum.Admin}
 )
 def get_users(**kwargs):
@@ -48,16 +46,15 @@ def get_users(**kwargs):
 @bp.route('/users', methods=['POST'])
 @api_wrapper(
     request_param=ParamDefine({
-        'account': ParamDefine(str, True, '账号', valid=User.valid_account, resp=RespEnum.InvalidAccount),
-        'password': ParamDefine(str, True, '密码', valid=User.valid_password, resp=RespEnum.InvalidPassword),
-        'username': ParamDefine(str, True, '用户名', valid=User.valid_username, resp=RespEnum.InvalidUsername),
-        'phone': ParamDefine(str, True, '手机号', valid=User.valid_phone, resp=RespEnum.InvalidPhone),
-        'email': ParamDefine(str, True, '邮箱', valid=User.valid_email, resp=RespEnum.InvalidEmail),
+        'account': ParamDefine(str, True, '账号', valid=User.valid_account, resp=APIErrorResponse(422, msg='无效账号')),
+        'password': ParamDefine(str, True, '密码', valid=User.valid_password, resp=APIErrorResponse(422, msg='无效密码')),
+        'username': ParamDefine(str, True, '用户名', valid=User.valid_username, resp=APIErrorResponse(422, msg='无效用户名')),
+        'phone': ParamDefine(str, True, '手机号', valid=User.valid_phone, resp=APIErrorResponse(422, msg='无效手机号')),
+        'email': ParamDefine(str, True, '邮箱', valid=User.valid_email, resp=APIErrorResponse(422, msg='无效邮箱')),
     }, True),
-    response_param={
-        RespEnum.Created: CreatedSchema(),
-    },
+    response_param=CreatedSchema(),
     response_header=TextPlainSchema(),
+    response_status=201,
     permission={RoleEnum.Admin}
 )
 def post_user(**kwargs):
@@ -72,9 +69,9 @@ def post_user(**kwargs):
 @bp.route('/users/<uid>', methods=['PATCH'])
 @api_wrapper(
     request_param=ParamDefine({
-        'username': ParamDefine(str, False, '用户名', valid=User.valid_username, resp=RespEnum.InvalidUsername),
-        'phone': ParamDefine(str, False, '手机号', valid=User.valid_phone, resp=RespEnum.InvalidPhone),
-        'email': ParamDefine(str, False, '邮箱', valid=User.valid_email, resp=RespEnum.InvalidEmail),
+        'username': ParamDefine(str, False, '用户名', valid=User.valid_username, resp=APIErrorResponse(422, msg='无效用户名')),
+        'phone': ParamDefine(str, False, '手机号', valid=User.valid_phone, resp=APIErrorResponse(422, msg='无效手机号')),
+        'email': ParamDefine(str, False, '邮箱', valid=User.valid_email, resp=APIErrorResponse(422, msg='无效邮箱')),
     }),
     permission={RoleEnum.Admin}
 )
@@ -109,7 +106,7 @@ def delete_user(**kwargs):
 @api_wrapper(
     request_param=ParamDefine({
         'old': ParamDefine(str, True, '旧密码'),
-        'new': ParamDefine(str, True, '新密码', valid=User.valid_password, resp=RespEnum.InvalidPassword),
+        'new': ParamDefine(str, True, '新密码', valid=User.valid_password, resp=APIErrorResponse(422, msg='无效密码')),
     }),
 )
 def put_password(**kwargs):
@@ -118,15 +115,15 @@ def put_password(**kwargs):
     """
     user = kwargs['user']
     if not user.check_password(kwargs['old']):
-        raise APIException(RespEnum.WrongPassword)
+        raise APIErrorResponse(403, msg='用户名或密码错误')
     user.password = User.generate_hash(kwargs['new'])
-    raise APIException(RespEnum.NoContent)
 
 
 @bp.route('/users/<uid>/password', methods=['PUT'])
 @api_wrapper(
     request_param=ParamDefine({
-        'password': ParamDefine(str, True, '密码', valid=User.valid_password, resp=RespEnum.InvalidPassword),
+        'password': ParamDefine(str, True, '密码', valid=User.valid_password,
+                                resp=APIErrorResponse(422, msg='无效密码')),
     }),
     permission={RoleEnum.Admin}
 )
@@ -151,19 +148,17 @@ def reset_password(uid, **kwargs):
         'created_at_start': ParamDefine(datetime, False),
         'created_at_end': ParamDefine(datetime, False),
     }),
-    response_param={
-        RespEnum.OK: PaginateResponseSchema(ParamDefine({
-            'account': ParamDefine(str, True, '账号'),
-            'username': ParamDefine(str, True, '用户名'),
-            'created_at': ParamDefine(datetime, True, '发生时间'),
-            'method': ParamDefine(MethodEnum, True, '请求类型'),
-            'blueprint': ParamDefine(str, True, '业务模块'),
-            'uri': ParamDefine(str, True, '接口路径'),
-            'status': ParamDefine(int, True, '响应状态'),
-            'duration': ParamDefine(int, True, '响应耗时'),
-            'source_ip': ParamDefine(str, True, '源IP'),
-        }, True)),
-    },
+    response_param=PaginateResponseSchema(ParamDefine({
+        'account': ParamDefine(str, True, '账号'),
+        'username': ParamDefine(str, True, '用户名'),
+        'created_at': ParamDefine(datetime, True, '发生时间'),
+        'method': ParamDefine(MethodEnum, True, '请求类型'),
+        'blueprint': ParamDefine(str, True, '业务模块'),
+        'uri': ParamDefine(str, True, '接口路径'),
+        'status': ParamDefine(int, True, '响应状态'),
+        'duration': ParamDefine(int, True, '响应耗时'),
+        'source_ip': ParamDefine(str, True, '源IP'),
+    }, True)),
     permission={RoleEnum.Admin}
 )
 def get_logs(**kwargs):

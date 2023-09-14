@@ -5,7 +5,6 @@ Author      : jinming.yang
 Description : 在__init__.py中统一导入
 - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 """
-from .api import *
 from .system import *
 
 _base = ['Enum', ]

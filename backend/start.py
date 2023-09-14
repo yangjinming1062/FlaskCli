@@ -19,7 +19,6 @@ from werkzeug.exceptions import NotFound
 
 import config
 from apis import *
-from defines import *
 from utils import JSONExtensionEncoder
 from utils import logger
 
@@ -67,21 +66,21 @@ def register_handler(flask_app):
         try:
             _ = verify_jwt_in_request()
             if (uid := get_jwt_identity()) is None:
-                return response(RespEnum.Forbidden)
+                return response(403, msg='未授权进行该操作')
             request.uid = uid
         except Exception as ex:
             logger.exception(ex)
-            return response(RespEnum.UnAuthorized)
+            return response(401, msg='认证失效')
 
     @flask_app.errorhandler(NotFound)
     def handle_path_error(_):
         logger.debug(f'未定义的地址：{request.base_url}')
-        return response(RespEnum.UriNotFound)
+        return response(404, msg='请求地址错误')
 
     @flask_app.errorhandler(MethodNotAllowed)
     def handle_method_error(_):
         logger.debug(f'未定义的地址：{request.base_url}，方法：{request.method}')
-        return response(RespEnum.MethodNotFound)
+        return response(404, msg='请求方法错误')
 
 
 if __name__ == '__main__':  # Debug时使用该方法

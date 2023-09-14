@@ -3,8 +3,8 @@
 """
 from typing import List
 
-from ..api import ParamDefine
-from ..api import ParamSchema
+from ..common import ParamDefine
+from ..common import ParamSchema
 
 
 class TextPlainSchema(ParamSchema):

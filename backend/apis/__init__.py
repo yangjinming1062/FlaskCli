@@ -1,7 +1,7 @@
 import re
 from glob import glob
 
-from .api import *
+from .common import *
 
 for name in glob(os.path.dirname(__file__) + '/*/*.??'):
     if os.path.isfile(name) and not name.endswith('__.py'):
